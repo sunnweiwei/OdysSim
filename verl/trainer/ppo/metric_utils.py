@@ -118,11 +118,32 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     prompt_length = response_info["prompt_length"]
     response_length = response_info["response_length"]
 
+    # TODO@Weiwei [Done]: first_seq_mask: first sub-seq per gen_uid; de-dups multi-agent rollouts
+    # TODO@Weiwei: exclude non-primary roles (agent_role set) so metrics reflect primary agent only
+    gen_uid_arr = batch.non_tensor_batch.get("gen_uid")
+    agent_role_arr = batch.non_tensor_batch.get("agent_role")
+    if gen_uid_arr is not None:
+        seen_guids: set = set()
+        first_seq_mask_np = np.zeros(len(response_length), dtype=bool)
+        for i, g in enumerate(gen_uid_arr):
+            if agent_role_arr is not None and agent_role_arr[i]:  # skip non-primary roles
+                continue
+            gid = str(g)
+            if gid not in seen_guids:
+                seen_guids.add(gid)
+                first_seq_mask_np[i] = True
+        first_seq_mask = torch.tensor(first_seq_mask_np, dtype=torch.bool)
+    else:
+        first_seq_mask = torch.ones(len(response_length), dtype=torch.bool)
+        first_seq_mask_np = np.ones(len(response_length), dtype=bool)
+
     aborted_mask = (response_length == 0).bool()
     non_aborted_mask = ~aborted_mask
 
-    non_aborted_sequence_score = sequence_score[non_aborted_mask]
-    non_aborted_sequence_reward = sequence_reward[non_aborted_mask]
+    # score/reward: use first_seq_mask to get one score per rollout slot (unbiased for multi-agent)
+    non_aborted_first = first_seq_mask & non_aborted_mask
+    non_aborted_sequence_score = sequence_score[non_aborted_first]
+    non_aborted_sequence_reward = sequence_reward[non_aborted_first]
 
     score_mean = torch.mean(non_aborted_sequence_score).detach().item()
     score_max = torch.max(non_aborted_sequence_score).detach().item()
@@ -220,6 +241,22 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         metrics["tool_call_counts/min"] = tool_call_counts.min()
         metrics["tool_call_counts/max"] = tool_call_counts.max()
         metrics["tool_call_counts/mean"] = tool_call_counts.mean()
+
+    # informative sample ratio: use first sub-seq per gen_uid for correct multi-agent grouping
+    n = batch.meta_info.get("n", 1)
+    first_seq_scores = sequence_score[first_seq_mask]
+    if n > 1 and len(first_seq_scores) % n == 0:
+        groups = first_seq_scores.view(-1, n)
+        informative = (groups.max(dim=-1).values != groups.min(dim=-1).values).float()
+        metrics["train/informative_ratio"] = informative.mean().item()
+
+    # agent-defined metrics: keys containing "/" are section/metric pairs
+    for key, vals in batch.non_tensor_batch.items():
+        if "/" not in key:
+            continue
+        valid = [float(v) for v in vals[first_seq_mask_np] if v is not None]
+        if valid:
+            metrics[f"aa/{key}"] = np.mean(valid)
 
     return metrics
 
@@ -440,6 +477,9 @@ def process_validation_metrics(
                     continue
 
                 metric = {}
+                var_vals = [v for v in var_vals if v is not None]
+                if not var_vals:
+                    continue
                 n_resps = len(var_vals)
                 metric[f"mean@{n_resps}"] = np.mean(var_vals)
 

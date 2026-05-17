@@ -84,6 +84,7 @@ from verl.utils.model import compute_position_id_with_mask, convert_weight_keys
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.utils.py_functional import convert_to_regular_types
+from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
 from verl.utils.ray_utils import get_event_loop
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfig, RolloutConfig
 from verl.workers.config.optimizer import build_optimizer
@@ -2019,3 +2020,222 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
+
+
+# TODO(OPD)@Weiwei [Done] OPD worker: EMA teacher living inside actor worker.
+# Future: add Megatron backend support in megatron_workers.py following the same pattern.
+# Future: support mode="frozen" and mode="separate" (separate model path / separate GPUs).
+# Future: replace log-prob advantage with top-k logit KL by passing teacher_topk_ids +
+#   teacher_topk_probs in batch and computing KL loss inside dp_actor.py update_policy.
+class OPDActorRolloutRefWorker(AsyncActorRolloutRefWorker):
+    """ActorRolloutRefWorker with on-policy distillation (OPD) teacher (EMA mode).
+
+    Usage: set actor_rollout_ref.cls=OPDActorRolloutRefWorker in run.sh and
+    enable algorithm.use_opd=True. Trainer calls init_opd_teacher() after init_model().
+    """
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def init_opd_teacher(self):
+        """Load teacher as a separate FSDP module (same checkpoint as actor).
+        Called once after init_model(). Teacher starts identical to actor; EMA drifts it slowly.
+        """
+        # TODO(OPD)@Weiwei [Done] init teacher FSDP module from same checkpoint as actor
+        from verl.workers.actor import DataParallelPPOActor
+
+        use_shm = self.config.model.get("use_shm", False)
+        local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
+        override_model_config = OmegaConf.to_container(
+            OmegaConf.create(self.config.model.get("override_config", {}))
+        )
+        use_remove_padding = self.config.model.get("use_remove_padding", False)
+        use_fused_kernels = self.config.model.get("use_fused_kernels", False)
+
+        # Reuse ref fsdp_config (inference-only, no optimizer)
+        self.teacher_module_fsdp = self._build_model_optimizer(
+            model_path=local_path,
+            fsdp_config=omega_conf_to_dataclass(self.config.ref.fsdp_config),
+            optim_config=None,
+            override_model_config=override_model_config,
+            use_remove_padding=use_remove_padding,
+            use_fused_kernels=use_fused_kernels,
+            trust_remote_code=self.config.model.get("trust_remote_code", False),
+            role="ref",
+        )[0]
+        self.teacher_policy = DataParallelPPOActor(
+            config=self.config.actor, actor_module=self.teacher_module_fsdp
+        )
+        log_gpu_memory_usage("After init OPD teacher model", logger=logger)
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    # TODO@Weiwei[OPD-TopK] compute old log probs + extract student top-k ids
+    def compute_old_log_prob_and_topk(self, data: DataProto) -> DataProto:
+        """Compute old log_probs and extract student's top-k token ids in one forward pass.
+
+        Only called when use_topk_opd is True (4-layer gating confirmed).
+        Returns old_log_probs, entropys, and student_topk_ids.
+        """
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+
+        opd_cfg = self.config.get("opd", {})
+        extract_topk_k = opd_cfg.get("opd_topk", 10)
+
+        data.meta_info["micro_batch_size"] = self.config.actor.ppo_micro_batch_size_per_gpu
+        data.meta_info["max_token_len"] = self.config.actor.ppo_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = self.config.actor.use_dynamic_bsz
+        data.meta_info["temperature"] = self.config.rollout.temperature
+
+        with torch.no_grad(), self.ulysses_sharding_manager:
+            data = data.to("cpu")
+            log_probs, entropy, topk_ids = self.actor.compute_log_prob_and_topk(data=data, extract_topk_k=extract_topk_k)
+
+        if self.world_size > 1 and fsdp_version(self.actor.actor_module) == 1:
+            self.actor.actor_module._handle.reshard(True)
+
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            log_gpu_memory_usage("After offload actor model during compute_old_log_prob_and_topk", logger=logger)
+
+        output = DataProto.from_dict(
+            tensors={
+                "old_log_probs": log_probs.cpu().float(),
+                "entropys": entropy.cpu().float(),
+                "student_topk_ids": topk_ids.cpu().to(torch.int32),
+            }
+        )
+        return output.to("cpu")
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    def compute_teacher_log_probs(self, data: DataProto) -> DataProto:
+        """Compute teacher log probs for all samples; opd_mask zeros out non-OPD rows.
+
+        When student_topk_ids is present in data.batch, also gathers teacher log probs
+        at those positions (for top-k OPD forward KL loss).
+        """
+        responses = data.batch["responses"]           # [B, resp_len]
+        response_mask = data.batch["response_mask"]   # [B, resp_len]
+        B, response_len = responses.shape
+
+        opd_cfg = self.config.get("opd", {})
+        teacher_prompt_length = opd_cfg.get("teacher_prompt_length", 2048)
+
+        # Build opd_mask and teacher prompt tensors for all B samples
+        teacher_prompt_ids_list = data.non_tensor_batch.get("teacher_prompt_ids", None)
+        opd_mask = torch.zeros(B, dtype=torch.bool)
+        prompt_ids = torch.zeros(B, teacher_prompt_length, dtype=torch.long)
+        prompt_mask = torch.zeros(B, teacher_prompt_length, dtype=torch.long)
+
+        if teacher_prompt_ids_list is not None:
+            for i, ids in enumerate(teacher_prompt_ids_list):
+                if ids is None or len(ids) == 0:
+                    continue
+                opd_mask[i] = True
+                t = torch.tensor(ids, dtype=torch.long)
+                if len(t) > teacher_prompt_length:
+                    t = t[-teacher_prompt_length:]  # keep rightmost on overflow
+                pad_len = teacher_prompt_length - len(t)
+                prompt_ids[i, pad_len:] = t
+                prompt_mask[i, pad_len:] = 1
+
+        # Teacher input: [teacher_prompt | response] for all B samples.
+        # Non-OPD rows have prompt_mask=0; remove_padding / Ulysses handle them correctly.
+        teacher_input_ids = torch.cat([prompt_ids, responses], dim=1)        # [B, T]
+        teacher_attn_mask = torch.cat([prompt_mask, response_mask], dim=1)   # [B, T]
+        teacher_pos_ids = teacher_attn_mask.long().cumsum(-1) - 1
+        teacher_pos_ids.masked_fill_(teacher_attn_mask == 0, 0)
+
+        # TODO@Weiwei[OPD-TopK] when student_topk_ids present, also gather teacher log probs at those positions
+        use_topk_opd = "student_topk_ids" in data.batch.keys()
+
+        teacher_data = DataProto.from_dict(
+            tensors={
+                "input_ids": teacher_input_ids,
+                "attention_mask": teacher_attn_mask,
+                "position_ids": teacher_pos_ids,
+                "responses": responses,
+                "response_mask": response_mask,
+            }
+        )
+        if use_topk_opd:
+            teacher_data.batch["student_topk_ids"] = data.batch["student_topk_ids"]
+
+        teacher_data.meta_info["micro_batch_size"] = self.config.actor.ppo_micro_batch_size_per_gpu
+        teacher_data.meta_info["max_token_len"] = self.config.actor.ppo_max_token_len_per_gpu * 2
+        teacher_data.meta_info["use_dynamic_bsz"] = self.config.actor.use_dynamic_bsz
+        teacher_data.meta_info["temperature"] = self.config.rollout.temperature
+
+        with torch.no_grad(), self.ulysses_sharding_manager:
+            teacher_data = teacher_data.to("cpu")
+            if use_topk_opd:
+                teacher_log_probs, topk_log_probs = self._compute_teacher_with_topk_gather(teacher_data)
+            else:
+                teacher_log_probs, _ = self.teacher_policy.compute_log_prob(data=teacher_data, calculate_entropy=False)
+                topk_log_probs = None
+
+        if self.world_size > 1:
+            if fsdp_version(self.teacher_policy.actor_module) == 1:
+                self.teacher_policy.actor_module._handle.reshard(True)
+            elif fsdp_version(self.teacher_policy.actor_module) == 2:
+                self.teacher_policy.actor_module.reshard()
+
+        output_tensors = {"teacher_log_probs": teacher_log_probs.cpu().float(), "opd_mask": opd_mask.float()}
+        if topk_log_probs is not None:
+            output_tensors["teacher_topk_log_probs"] = topk_log_probs.cpu().float()
+        output = DataProto.from_dict(tensors=output_tensors)
+        return output.to("cpu")
+
+    # TODO@Weiwei[OPD-TopK] teacher gathers log probs at student's top-k positions
+    def _compute_teacher_with_topk_gather(self, teacher_data: DataProto):
+        """Teacher forward: compute log_probs AND gather at student's top-k positions.
+
+        Uses _forward_micro_batch_topk on teacher_policy which passes gather_ids
+        through the fused kernel. Returns both single-token and top-k log probs.
+        """
+        micro_batch_size = teacher_data.meta_info["micro_batch_size"]
+        temperature = teacher_data.meta_info["temperature"]
+        use_dynamic_bsz = teacher_data.meta_info["use_dynamic_bsz"]
+        select_keys = ["responses", "input_ids", "attention_mask", "position_ids", "student_topk_ids"]
+
+        teacher_data = teacher_data.select(batch_keys=select_keys)
+
+        if use_dynamic_bsz:
+            max_token_len = teacher_data.meta_info["max_token_len"] * self.teacher_policy.ulysses_sequence_parallel_size
+            micro_batches, batch_idx_list = prepare_dynamic_batch(teacher_data, max_token_len=max_token_len)
+        else:
+            micro_batches = teacher_data.split(micro_batch_size)
+
+        log_probs_lst = []
+        topk_lp_lst = []
+        for micro_batch in micro_batches:
+            micro_batch = micro_batch.to(get_device_id())
+            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+            with torch.no_grad():
+                entropy, log_probs, gathered_log_probs = self.teacher_policy._forward_micro_batch_topk(
+                    model_inputs, temperature=temperature,
+                    gather_ids=model_inputs["student_topk_ids"],
+                )
+            log_probs_lst.append(log_probs)
+            topk_lp_lst.append(gathered_log_probs)
+
+        log_probs = torch.concat(log_probs_lst, dim=0)
+        topk_log_probs = torch.concat(topk_lp_lst, dim=0)
+
+        if use_dynamic_bsz:
+            log_probs = restore_dynamic_batch(log_probs, batch_idx_list)
+            topk_log_probs = restore_dynamic_batch(topk_log_probs, batch_idx_list)
+
+        return log_probs, topk_log_probs
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def update_teacher_ema(self):
+        """EMA update: teacher = (1 - rate) * teacher + rate * actor. Call after each actor update.
+        TODO(OPD)@Weiwei [Done] mirrors SDPO _update_teacher(); runs on all FSDP ranks.
+        """
+        update_rate = self.config.get("opd", {}).get("update_rate", 0.05)
+        with torch.no_grad():
+            for t_param, a_param in zip(
+                self.teacher_module_fsdp.parameters(),
+                self.actor_module_fsdp.parameters(),
+            ):
+                a_data = a_param.data.to(device=t_param.device)
+                t_param.data.mul_(1.0 - update_rate).add_(a_data, alpha=update_rate)

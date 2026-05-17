@@ -105,6 +105,7 @@ class AdvantageEstimator(str, Enum):
     GPG = "gpg"
     RLOO_VECTORIZED = "rloo_vectorized"
     GRPO_VECTORIZED = "grpo_vectorized"
+    FOLDGRPO = "foldgrpo"  # TODO@Weiwei [Done]: GRPO + gen_uid de-dup for multi-agent
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -323,6 +324,56 @@ def compute_grpo_outcome_advantage(
                 scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
             else:
                 scores[i] = scores[i] - id2mean[index[i]]
+        scores = scores.unsqueeze(-1) * response_mask
+
+    return scores, scores
+
+
+@register_adv_est(AdvantageEstimator.FOLDGRPO)  # TODO@Weiwei [Done]: GRPO + gen_uid de-dup
+def compute_foldgrpo_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    gen_uid: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+    agent_role: Optional[np.ndarray] = None,  # TODO@Weiwei: per-role GRPO grouping; None=primary/default
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """GRPO with gen_uid de-duplication for multi-agent rollouts.
+
+    Multiple sub-sequences sharing the same gen_uid count as one rollout score
+    when computing group mean/std, preventing bias from variable k sub-seqs.
+    If agent_role is provided, grouping key becomes (uid, role) so each role
+    normalizes within its own group.
+    """
+    scores = token_level_rewards.sum(dim=-1)
+    id2score: dict = defaultdict(list)
+    id2seen: dict = defaultdict(set)
+    id2mean: dict = {}
+    id2std: dict = {}
+
+    with torch.no_grad():
+        for i in range(len(scores)):
+            uid = index[i]
+            # TODO@Weiwei: use (uid, role) as group key when agent_role is provided
+            group_key = (uid, str(agent_role[i]) if agent_role[i] is not None else "") if agent_role is not None else uid
+            gid = str(gen_uid[i])
+            if gid in id2seen[group_key]:
+                continue  # same rollout already counted
+            id2seen[group_key].add(gid)
+            id2score[group_key].append(scores[i])
+        for group_key, uid_scores in id2score.items():
+            t = torch.stack(uid_scores)
+            id2mean[group_key] = t.mean() if len(t) > 1 else torch.tensor(0.0)
+            id2std[group_key] = t.std() if len(t) > 1 else torch.tensor(1.0)
+        for i in range(len(scores)):
+            uid = index[i]
+            group_key = (uid, str(agent_role[i]) if agent_role[i] is not None else "") if agent_role is not None else uid
+            if norm_adv_by_std_in_grpo:
+                scores[i] = (scores[i] - id2mean[group_key]) / (id2std[group_key] + epsilon)
+            else:
+                scores[i] = scores[i] - id2mean[group_key]
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
@@ -1951,3 +2002,117 @@ def compute_policy_loss_bypass_mode(
     pg_metrics.update(rollout_metrics)
 
     return pg_loss, pg_metrics
+
+
+@register_policy_loss("sft")
+def compute_sft_loss(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config=None,
+    rollout_is_weights=None,
+) -> tuple[torch.Tensor, dict]:
+    """SFT cross-entropy loss. old_log_prob and advantages are unused."""
+    loss = agg_loss(-log_prob, response_mask, loss_agg_mode)
+    return loss, {"sft/nll_loss": loss.detach().item()}
+
+
+# TODO(OPD)@Weiwei [Done] token-level log-prob advantage for on-policy distillation.
+# Future: replace with top-k logit KL loss injected in dp_actor.py update_policy
+# (requires storing teacher_topk_ids + teacher_topk_probs in batch and accessing
+# student logits directly, which cannot be expressed as a scalar advantage).
+def compute_opd_advantage(
+    teacher_log_prob: torch.Tensor,
+    student_log_prob: torch.Tensor,
+    response_mask: torch.Tensor,
+    opd_mask: torch.Tensor,
+    estimator: str = "local",
+    clip: float = 5.0,
+    discount: float = 1.0,
+    window: int = 0,
+    normalize: bool = False,
+    index: Optional[np.ndarray] = None,
+) -> torch.Tensor:
+    """Per-token OPD advantage based on log_r = log π_teacher(a_t) - log π_student(a_t).
+
+    Estimators:
+      local:    per-token log_r only, no aggregation across time
+      sum:      return-to-go — A_t = sum_{s>=t} log_r_s (sequence-level credit)
+      discount: discounted return-to-go — A_t = sum_{s>=t} gamma^(s-t) * log_r_s
+      window:   windowed sum — A_t = sum_{s=t}^{t+window-1} log_r_s
+
+    Options:
+      normalize: subtract per-sequence mean so each sequence's advantages are zero-centered
+      clip:      clip final advantage to [-clip, clip]
+
+    Args:
+        teacher_log_prob: [B, response_len]
+        student_log_prob: [B, response_len]
+        response_mask:    [B, response_len] 1 for real tokens, 0 for padding
+        opd_mask:         [B] 1 for samples with teacher_prompt, 0 otherwise
+        estimator:        "local" | "sum" | "discount" | "window"
+        clip:             clip final adv to [-clip, clip]
+        discount:         gamma for "discount" estimator
+        window:           look-ahead window size for "window" estimator
+        normalize:        zero-center adv per sequence
+
+    Returns:
+        [B, response_len] per-token advantage, zero for non-OPD samples
+    """
+    log_r = (teacher_log_prob - student_log_prob) * response_mask  # zero out env/padding tokens
+
+    if estimator == "local":
+        adv = log_r
+
+    elif estimator == "sum":
+        # suffix sum over model tokens: A_t = sum_{s>=t, mask[s]=1} log_r_s
+        # env tokens have log_r=0 so they contribute nothing to the suffix
+        adv = log_r.flip(-1).cumsum(-1).flip(-1)
+
+    elif estimator == "discount":
+        # A_t = sum_{s>=t} gamma^(model_count(s) - model_count(t)) * log_r_s
+        # discount based on model-token steps, not absolute position steps,
+        # so env observations don't consume the discount budget
+        model_count = response_mask.float().cumsum(-1)  # [B, T] 1-indexed model token count
+        gammas = discount ** model_count               # [B, T]
+        weighted = log_r * gammas                      # env tokens: log_r=0 so weighted=0
+        adv = weighted.flip(-1).cumsum(-1).flip(-1) / gammas.clamp(min=1e-8)
+
+    elif estimator == "window":
+        # A_t = sum of log_r for the next `window` model-generated tokens starting at t
+        # window counts model tokens only, not env tokens
+        B, T = log_r.shape
+        adv = torch.zeros_like(log_r)
+        for b in range(B):
+            mask_b = response_mask[b].bool()
+            model_log_r = log_r[b][mask_b]                          # [M]
+            model_suffix = model_log_r.flip(0).cumsum(0).flip(0)   # suffix sum on model tokens
+            if window > 0:
+                shifted = torch.zeros_like(model_suffix)
+                shifted[:-window] = model_suffix[window:]
+                model_window = model_suffix - shifted
+            else:
+                model_window = model_suffix
+            adv[b][mask_b] = model_window
+
+    else:
+        raise ValueError(f"Unknown OPD estimator: {estimator!r}. Choose local | sum | discount | window")
+
+    if normalize:
+        if index is not None:
+            # group-level mean subtraction (matches GRPO grouping); no std division to avoid amplifying sparse large values
+            valid = response_mask.bool() & opd_mask.bool().unsqueeze(-1)   # [B, T]
+            g_per_sample = as_torch_index(index, device=adv.device)        # [B]
+            g_per_token = g_per_sample.unsqueeze(-1).expand_as(adv)        # [B, T]
+            mean_g, _, _ = group_mean_std(adv[valid], g_per_token[valid], device=adv.device)
+            norm_adv = adv - mean_g[g_per_token]
+            adv = torch.where(valid, norm_adv, adv)
+        else:
+            seq_mean = (adv * response_mask).sum(-1, keepdim=True) / response_mask.sum(-1, keepdim=True).clamp(min=1)
+            adv = adv - seq_mean
+
+    adv = adv.clamp(-clip, clip)
+    adv = adv * response_mask * opd_mask.unsqueeze(-1).float()
+    return adv

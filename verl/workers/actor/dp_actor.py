@@ -306,6 +306,185 @@ class DataParallelPPOActor(BasePPOActor):
 
             return entropy, log_probs
 
+    # TODO@Weiwei[OPD-TopK] forward with gather_ids for top-k KL loss during update_policy
+    def _forward_micro_batch_topk(self, micro_batch, temperature, gather_ids):
+        """Forward with top-k gather. Only supports use_fused_kernels=True.
+
+        Args:
+            micro_batch: same as _forward_micro_batch
+            temperature: softmax temperature
+            gather_ids: (bsz, response_len, k) — student's top-k token positions (from old policy)
+
+        Returns:
+            entropy: (bsz, response_len)
+            log_probs: (bsz, response_len)
+            gathered_log_probs: (bsz, response_len, k) — student log probs at top-k positions
+        """
+        assert self.use_fused_kernels, "top-k OPD requires use_fused_kernels=True"
+
+        response_length = micro_batch["responses"].size(-1)
+        k = gather_ids.shape[-1]
+        multi_modal_inputs = {}
+        if "multi_modal_inputs" in micro_batch.keys():
+            from verl.utils.model import extract_multi_modal_inputs
+
+            multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
+
+        with torch.autocast(device_type=self.device_name, dtype=self.param_dtype):
+            input_ids = micro_batch["input_ids"]
+            batch_size, seqlen = input_ids.shape
+            attention_mask = micro_batch["attention_mask"]
+            position_ids = micro_batch["position_ids"]
+
+            # expand gather_ids to full seqlen: [bsz, seqlen, k]
+            prompt_length = seqlen - response_length
+            gather_ids_full = torch.zeros(
+                batch_size, seqlen, k, dtype=torch.int32, device=gather_ids.device
+            )
+            gather_ids_full[:, prompt_length:, :] = gather_ids
+
+            if position_ids.dim() == 3:
+                position_ids = position_ids.transpose(0, 1)
+
+            extra_args = {"temperature": temperature, "return_dict": True}
+
+            if self.use_remove_padding:
+                input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
+                    input_ids.unsqueeze(-1), attention_mask
+                )
+                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+
+                if position_ids.dim() == 3:
+                    position_ids_rmpad = (
+                        index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                        .transpose(0, 1)
+                        .unsqueeze(1)
+                    )
+                else:
+                    position_ids_rmpad = index_first_axis(
+                        rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+                    ).transpose(0, 1)
+
+                # unpad gather_ids: [bsz, seqlen, k] -> [total_nnz, k] -> [1, total_nnz, k]
+                gather_ids_rmpad = index_first_axis(
+                    gather_ids_full.reshape(batch_size * seqlen, k), indices
+                ).unsqueeze(0)  # (1, total_nnz, k)
+
+                is_mask_all_zero = attention_mask.sum() == 0
+                if is_mask_all_zero:
+                    input_ids_rmpad = torch.zeros(
+                        (1, self.ulysses_sequence_parallel_size),
+                        device=input_ids.device, dtype=input_ids.dtype,
+                    )
+                    if position_ids.dim() == 3:
+                        position_ids_rmpad = torch.zeros(
+                            (position_ids.shape[0], 1, self.ulysses_sequence_parallel_size),
+                            device=position_ids.device, dtype=position_ids.dtype,
+                        )
+                    else:
+                        position_ids_rmpad = torch.zeros(
+                            (1, self.ulysses_sequence_parallel_size),
+                            device=position_ids.device, dtype=position_ids.dtype,
+                        )
+                    gather_ids_rmpad = torch.zeros(
+                        (1, self.ulysses_sequence_parallel_size, k),
+                        device=gather_ids.device, dtype=torch.int32,
+                    )
+
+                if self.use_ulysses_sp:
+                    from verl.utils.ulysses import slice_input_tensor
+
+                    is_vlm_model = hasattr(
+                        getattr(self.actor_module, "module", self.actor_module).config, "vision_config"
+                    )
+                    if is_vlm_model:
+                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
+                            input_ids_rmpad,
+                            position_ids_rmpad=position_ids_rmpad,
+                            sp_size=self.ulysses_sequence_parallel_size,
+                        )
+                    else:
+                        input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                            input_ids_rmpad,
+                            position_ids_rmpad=position_ids_rmpad,
+                            sp_size=self.ulysses_sequence_parallel_size,
+                        )
+                    # pad and slice gather_ids on sequence dim
+                    sp_size = self.ulysses_sequence_parallel_size
+                    total_nnz = gather_ids_rmpad.shape[1]
+                    g_pad = (sp_size - total_nnz % sp_size) % sp_size
+                    if g_pad > 0:
+                        gather_ids_rmpad = torch.nn.functional.pad(gather_ids_rmpad, (0, 0, 0, g_pad))
+                    gather_ids_rmpad = slice_input_tensor(gather_ids_rmpad, dim=1, padding=False)
+
+                extra_args["gather_ids"] = gather_ids_rmpad
+
+                output = self.actor_module(
+                    input_ids=input_ids_rmpad,
+                    attention_mask=None,
+                    position_ids=position_ids_rmpad,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                    **extra_args,
+                )
+
+                log_probs = output.log_probs.squeeze(0)
+                entropy_rmpad = output.entropy.squeeze(0)
+                gathered = output.gathered_log_probs.squeeze(0)  # (total_nnz/sp, k)
+
+                if self.use_ulysses_sp:
+                    log_probs = gather_outputs_and_unpad(
+                        log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size,
+                    )
+                    entropy_rmpad = gather_outputs_and_unpad(
+                        entropy_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size,
+                    )
+                    # gathered: (total_nnz/sp, k) -> gather on dim=0, unpad
+                    gathered = gather_outputs_and_unpad(
+                        gathered, gather_dim=0, unpad_dim=0, padding_size=pad_size,
+                    )
+
+                if is_mask_all_zero:
+                    log_probs = log_probs[:0]
+                    entropy_rmpad = entropy_rmpad[:0]
+                    gathered = gathered[:0]
+
+                full_log_probs = pad_input(
+                    hidden_states=log_probs.unsqueeze(-1), indices=indices,
+                    batch=batch_size, seqlen=seqlen,
+                )
+                full_entropy = pad_input(
+                    hidden_states=entropy_rmpad.unsqueeze(-1), indices=indices,
+                    batch=batch_size, seqlen=seqlen,
+                )
+                full_gathered = pad_input(
+                    hidden_states=gathered, indices=indices,
+                    batch=batch_size, seqlen=seqlen,
+                )  # (bsz, seqlen, k)
+
+                entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]
+                log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]
+                gathered_log_probs = full_gathered[:, -response_length - 1 : -1, :]
+
+            else:  # not using rmpad
+                gather_ids_full_shifted = gather_ids_full  # already full seqlen
+                extra_args["gather_ids"] = gather_ids_full_shifted
+
+                output = self.actor_module(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    **multi_modal_inputs,
+                    use_cache=False,
+                    **extra_args,
+                )
+
+                log_probs = output.log_probs[:, -response_length - 1 : -1]
+                entropy = output.entropy[:, -response_length - 1 : -1]
+                gathered_log_probs = output.gathered_log_probs[:, -response_length - 1 : -1, :]
+
+            return entropy, log_probs, gathered_log_probs
+
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
         if self.scaler is not None:
@@ -395,6 +574,160 @@ class DataParallelPPOActor(BasePPOActor):
         return log_probs, entropys
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
+    # TODO@Weiwei[OPD-TopK] compute old log probs + extract student top-k ids in one forward pass
+    def compute_log_prob_and_topk(self, data: DataProto, extract_topk_k: int):
+        """Like compute_log_prob, but also extracts student's top-k token ids.
+
+        Piggybacks on the same forward pass via extract_topk_k kwarg.
+        Requires use_fused_kernels=True (4-layer gating ensures this).
+
+        Returns:
+            log_probs: (batch_size, response_length)
+            entropy: (batch_size, response_length)
+            topk_ids: (batch_size, response_length, k)
+        """
+        assert self.use_fused_kernels, "compute_log_prob_and_topk requires use_fused_kernels=True"
+        self.actor_module.eval()
+
+        micro_batch_size = data.meta_info["micro_batch_size"]
+        temperature = data.meta_info["temperature"]
+        use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
+        select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
+        has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+
+        data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
+
+        if use_dynamic_bsz:
+            max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
+            micro_batches, batch_idx_list = prepare_dynamic_batch(data, max_token_len=max_token_len)
+        else:
+            micro_batches = data.split(micro_batch_size)
+
+        log_probs_lst = []
+        entropy_lst = []
+        topk_ids_lst = []
+        for micro_batch in micro_batches:
+            micro_batch = micro_batch.to(get_device_id())
+            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+            with torch.no_grad():
+                response_length = model_inputs["responses"].size(-1)
+                input_ids = model_inputs["input_ids"]
+                batch_size, seqlen = input_ids.shape
+                attention_mask = model_inputs["attention_mask"]
+                position_ids = model_inputs["position_ids"]
+
+                multi_modal_inputs = {}
+                if "multi_modal_inputs" in model_inputs.keys():
+                    from verl.utils.model import extract_multi_modal_inputs
+                    multi_modal_inputs = extract_multi_modal_inputs(model_inputs["multi_modal_inputs"])
+
+                with torch.autocast(device_type=self.device_name, dtype=self.param_dtype):
+                    if position_ids.dim() == 3:
+                        position_ids = position_ids.transpose(0, 1)
+
+                    extra_args = {"temperature": temperature, "return_dict": True, "extract_topk_k": extract_topk_k}
+
+                    if self.use_remove_padding:
+                        input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
+                            input_ids.unsqueeze(-1), attention_mask
+                        )
+                        input_ids_rmpad = input_ids_rmpad.transpose(0, 1)
+
+                        if position_ids.dim() == 3:
+                            position_ids_rmpad = (
+                                index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
+                                .transpose(0, 1).unsqueeze(1)
+                            )
+                        else:
+                            position_ids_rmpad = index_first_axis(
+                                rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
+                            ).transpose(0, 1)
+
+                        is_mask_all_zero = attention_mask.sum() == 0
+                        if is_mask_all_zero:
+                            input_ids_rmpad = torch.zeros(
+                                (1, self.ulysses_sequence_parallel_size),
+                                device=input_ids.device, dtype=input_ids.dtype,
+                            )
+                            if position_ids.dim() == 3:
+                                position_ids_rmpad = torch.zeros(
+                                    (position_ids.shape[0], 1, self.ulysses_sequence_parallel_size),
+                                    device=position_ids.device, dtype=position_ids.dtype,
+                                )
+                            else:
+                                position_ids_rmpad = torch.zeros(
+                                    (1, self.ulysses_sequence_parallel_size),
+                                    device=position_ids.device, dtype=position_ids.dtype,
+                                )
+
+                        if self.use_ulysses_sp:
+                            is_vlm_model = hasattr(
+                                getattr(self.actor_module, "module", self.actor_module).config, "vision_config"
+                            )
+                            if is_vlm_model:
+                                input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
+                                    input_ids_rmpad, position_ids_rmpad=position_ids_rmpad,
+                                    sp_size=self.ulysses_sequence_parallel_size,
+                                )
+                            else:
+                                input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
+                                    input_ids_rmpad, position_ids_rmpad=position_ids_rmpad,
+                                    sp_size=self.ulysses_sequence_parallel_size,
+                                )
+
+                        output = self.actor_module(
+                            input_ids=input_ids_rmpad, attention_mask=None, position_ids=position_ids_rmpad,
+                            **multi_modal_inputs, use_cache=False, **extra_args,
+                        )
+
+                        log_probs = output.log_probs.squeeze(0)
+                        entropy = output.entropy.squeeze(0)
+                        topk_ids = output.topk_ids.squeeze(0)  # (total_nnz/sp, k)
+
+                        if self.use_ulysses_sp:
+                            log_probs = gather_outputs_and_unpad(log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                            entropy = gather_outputs_and_unpad(entropy, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                            topk_ids = gather_outputs_and_unpad(topk_ids, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+
+                        if is_mask_all_zero:
+                            log_probs = log_probs[:0]
+                            entropy = entropy[:0]
+                            topk_ids = topk_ids[:0]
+
+                        full_log_probs = pad_input(hidden_states=log_probs.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen)
+                        full_entropy = pad_input(hidden_states=entropy.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen)
+                        full_topk_ids = pad_input(hidden_states=topk_ids, indices=indices, batch=batch_size, seqlen=seqlen)
+
+                        log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]
+                        entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]
+                        topk_ids = full_topk_ids[:, -response_length - 1 : -1, :]
+
+                    else:
+                        output = self.actor_module(
+                            input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids,
+                            **multi_modal_inputs, use_cache=False, **extra_args,
+                        )
+                        log_probs = output.log_probs[:, -response_length - 1 : -1]
+                        entropy = output.entropy[:, -response_length - 1 : -1]
+                        topk_ids = output.topk_ids[:, -response_length - 1 : -1, :]
+
+            log_probs_lst.append(log_probs)
+            entropy_lst.append(entropy)
+            topk_ids_lst.append(topk_ids)
+
+        log_probs = torch.concat(log_probs_lst, dim=0)
+        entropy = torch.concat(entropy_lst, dim=0)
+        topk_ids = torch.concat(topk_ids_lst, dim=0)
+
+        if use_dynamic_bsz:
+            log_probs = restore_dynamic_batch(log_probs, batch_idx_list)
+            entropy = restore_dynamic_batch(entropy, batch_idx_list)
+            topk_ids = restore_dynamic_batch(topk_ids, batch_idx_list)
+
+        return log_probs, entropy, topk_ids
+
+    @GPUMemoryLogger(role="dp actor", logger=logger)
     def update_policy(self, data: DataProto):
         # make sure we are in training mode
         self.actor_module.train()
@@ -419,6 +752,10 @@ class DataParallelPPOActor(BasePPOActor):
         # Include rollout_log_probs for computing rollout_corr metrics in bypass mode
         if "rollout_log_probs" in data.batch.keys():
             select_keys.append("rollout_log_probs")
+        # TODO@Weiwei[OPD-TopK] detect top-k OPD data and use topk forward + KL loss
+        use_topk_opd = "student_topk_ids" in data.batch.keys()
+        if use_topk_opd:
+            select_keys.extend(["student_topk_ids", "teacher_topk_log_probs", "opd_mask"])
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
@@ -467,9 +804,16 @@ class DataParallelPPOActor(BasePPOActor):
                         loss_scale_factor = 1 / self.gradient_accumulation
 
                     # all return: (bsz, response_length)
-                    entropy, log_prob = self._forward_micro_batch(
-                        model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
-                    )
+                    gathered_log_probs = None
+                    if use_topk_opd:
+                        entropy, log_prob, gathered_log_probs = self._forward_micro_batch_topk(
+                            model_inputs, temperature=temperature,
+                            gather_ids=model_inputs["student_topk_ids"],
+                        )
+                    else:
+                        entropy, log_prob = self._forward_micro_batch(
+                            model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+                        )
 
                     # for fully_async_policy recipe
                     if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
@@ -535,6 +879,28 @@ class DataParallelPPOActor(BasePPOActor):
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         metrics["actor/kl_loss"] += kl_loss.detach().item() * loss_scale_factor
                         micro_batch_metrics["actor/kl_coef"] = self.config.kl_loss_coef
+
+                    # TODO@Weiwei[OPD-TopK] forward KL loss at student's top-k positions
+                    if use_topk_opd and gathered_log_probs is not None:
+                        teacher_topk_lp = model_inputs["teacher_topk_log_probs"]  # (bsz, resp_len, k)
+                        opd_mask = model_inputs["opd_mask"]  # (bsz,)
+                        # renormalize over top-k with temperature (applied to both, Hinton-style KD)
+                        opd_temp = data.meta_info.get("opd_clip", 1.0)
+                        teacher_topk_lp_t = teacher_topk_lp.detach() / opd_temp
+                        teacher_topk_lp_norm = teacher_topk_lp_t - torch.logsumexp(teacher_topk_lp_t, dim=-1, keepdim=True)
+                        student_topk_lp_t = gathered_log_probs / opd_temp
+                        student_topk_lp_norm = student_topk_lp_t - torch.logsumexp(student_topk_lp_t, dim=-1, keepdim=True)
+                        # KL(teacher_T || student_T) with renormalized top-k distributions
+                        teacher_probs = teacher_topk_lp_norm.exp()
+                        topk_kl = (teacher_probs * (teacher_topk_lp_norm - student_topk_lp_norm)).sum(-1)
+                        topk_kl = topk_kl.clamp(min=0.0)
+                        opd_loss_mask = response_mask * opd_mask.float().unsqueeze(-1)
+                        topk_kl_loss = agg_loss(
+                            loss_mat=topk_kl, loss_mask=opd_loss_mask, loss_agg_mode=loss_agg_mode,
+                        )
+                        opd_alpha = data.meta_info.get("opd_alpha", 1.0)
+                        policy_loss = policy_loss + topk_kl_loss * opd_alpha
+                        micro_batch_metrics["actor/topk_kl_loss"] = topk_kl_loss.detach().item()
 
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz

@@ -160,6 +160,13 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
+        # TODO(OPD)@Weiwei [Done] allow overriding worker cls via actor_rollout_ref.cls config
+        custom_cls_path = config.actor_rollout_ref.get("cls", None)
+        if custom_cls_path:
+            import importlib
+            module_path, cls_name = custom_cls_path.rsplit(".", 1)
+            actor_rollout_cls = getattr(importlib.import_module(module_path), cls_name)
+
         self.role_worker_mapping[Role.ActorRollout] = ray.remote(actor_rollout_cls)
         self.mapping[Role.ActorRollout] = "global_pool"
         return actor_rollout_cls, ray_worker_group_cls

@@ -651,6 +651,16 @@ def load_valuehead_model(local_path, torch_dtype, model_config, trust_remote_cod
         attn_implementation="flash_attention_2",
         trust_remote_code=trust_remote_code,
     )
+    # TRL's ValueHead requires hidden_size at the top level of the config.
+    # VLMs like Qwen3-VL nest it under text_config, causing UnboundLocalError.
+    if not hasattr(ori_model.config, "hidden_size"):
+        if hasattr(ori_model.config, "text_config") and hasattr(ori_model.config.text_config, "hidden_size"):
+            ori_model.config.hidden_size = ori_model.config.text_config.hidden_size
+        else:
+            for attr in ("d_model", "n_embd", "hidden_dim", "embed_dim"):
+                if hasattr(ori_model.config, attr):
+                    ori_model.config.hidden_size = getattr(ori_model.config, attr)
+                    break
     model = AutoModelForCausalLMWithValueHead.from_pretrained(ori_model)
     patch_valuehead_model(model)
     return model

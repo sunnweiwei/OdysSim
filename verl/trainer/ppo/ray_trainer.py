@@ -244,6 +244,19 @@ def compute_advantage(
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
+    elif adv_estimator == AdvantageEstimator.FOLDGRPO:  # TODO@Weiwei [Done]: GRPO + gen_uid de-dup for multi-agent
+        assert "gen_uid" in data.non_tensor_batch, "FOLDGRPO requires gen_uid in non_tensor_batch"
+        advantages, returns = core_algos.compute_foldgrpo_advantage(
+            token_level_rewards=data.batch["token_level_rewards"],
+            response_mask=data.batch["response_mask"],
+            index=data.non_tensor_batch["uid"],
+            gen_uid=data.non_tensor_batch["gen_uid"],
+            norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+            config=config,
+            agent_role=data.non_tensor_batch.get("agent_role"),  # TODO@Weiwei: per-role grouping; None=disabled
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
@@ -333,6 +346,20 @@ class RayPPOTrainer:
         self.use_reward_loop = self.config.reward_model.use_reward_loop
 
         self.use_critic = need_critic(self.config)
+        # TODO(OPD)@Weiwei [Done] enable on-policy distillation via algorithm.use_opd
+        self.use_opd = self.config.algorithm.get("use_opd", False)
+        # TODO@Weiwei[OPD-TopK] 4-layer gating: use_opd, opd_topk>1, use_fused_kernels, use_topk_kernel
+        opd_topk = self.config.algorithm.get("opd_topk", 1)
+        use_fused = self.config.actor_rollout_ref.model.get("use_fused_kernels", False)
+        use_topk_kernel = self.config.algorithm.get("use_topk_kernel", False)
+        self.use_topk_opd = self.use_opd and opd_topk > 1 and use_fused and use_topk_kernel
+        if self.use_opd and opd_topk > 1 and not self.use_topk_opd:
+            import warnings
+            warnings.warn(
+                f"opd_topk={opd_topk} but use_topk_opd=False "
+                f"(use_fused_kernels={use_fused}, use_topk_kernel={use_topk_kernel}). "
+                "Falling back to single-token OPD."
+            )
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if device_name else self.config.trainer.device
         self.validation_generations_logger = ValidationGenerationsLogger(
@@ -437,7 +464,7 @@ class RayPPOTrainer:
         except Exception as e:
             print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
-    def _dump_generations(self, inputs, outputs, gts, scores, reward_extra_infos_dict, dump_path):
+    def _dump_generations(self, inputs, outputs, gts, scores, reward_extra_infos_dict, dump_path, indices=None):
         """Dump rollout/validation samples as JSONL."""
         os.makedirs(dump_path, exist_ok=True)
         filename = os.path.join(dump_path, f"{self.global_steps}.jsonl")
@@ -450,6 +477,8 @@ class RayPPOTrainer:
             "score": scores,
             "step": [self.global_steps] * n,
         }
+        if indices is not None:
+            base_data["index"] = indices
 
         for k, v in reward_extra_infos_dict.items():
             if len(v) == n:
@@ -615,6 +644,7 @@ class RayPPOTrainer:
         sample_scores = []
         sample_turns = []
         sample_uids = []
+        sample_indices = []
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
@@ -633,11 +663,6 @@ class RayPPOTrainer:
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
                 return {}
 
-            ground_truths = [
-                item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
-            ]
-            sample_gts.extend(ground_truths)
-
             test_gen_batch = self._get_gen_batch(test_batch)
             test_gen_batch.meta_info = {
                 "eos_token_id": self.tokenizer.eos_token_id,
@@ -648,6 +673,12 @@ class RayPPOTrainer:
                 "global_steps": self.global_steps,
             }
             print(f"test_gen_batch meta info: {test_gen_batch.meta_info}")
+
+            # TODO@Weiwei [Done]: set gen_uid per rollout slot so multi-agent sub-seqs can be
+            # aggregated back to one score per rollout (mirrors training loop gen_uid assignment).
+            test_gen_batch.non_tensor_batch["gen_uid"] = np.array(
+                [str(uuid.uuid4()) for _ in range(len(test_gen_batch))], dtype=object
+            )
 
             # pad to be divisible by dp_size
             size_divisor = (
@@ -666,42 +697,95 @@ class RayPPOTrainer:
 
             print("validation generation end")
 
-            # Store generated outputs
-            output_ids = test_output_gen_batch.batch["responses"]
-            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
-            sample_outputs.extend(output_texts)
-
+            # TODO@Weiwei [Done]: uid-aware expansion for multi-agent (variable k sub-seqs per rollout)
+            val_rollout_n = self.config.actor_rollout_ref.rollout.val_kwargs.get("n", 1)
+            gen_out_uid = test_output_gen_batch.non_tensor_batch.get("uid")
+            if gen_out_uid is not None and len(test_output_gen_batch) != len(test_batch) * val_rollout_n:
+                uid_to_idx = {u: i for i, u in enumerate(test_batch.non_tensor_batch["uid"])}
+                test_batch = test_batch[np.array([uid_to_idx[u] for u in gen_out_uid])]
+            else:
+                if val_rollout_n > 1:
+                    test_batch = test_batch.repeat(repeat_times=val_rollout_n, interleave=True)
             test_batch = test_batch.union(test_output_gen_batch)
             test_batch.meta_info["validate"] = True
 
-            # Store original inputs
+            # Collect inputs, outputs, gts from post-expansion batch (aligned with scores below)
             input_ids = test_batch.batch["prompts"]
-            # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-            sample_inputs.extend(input_texts)
-            sample_uids.extend(test_batch.non_tensor_batch["uid"])
+            output_ids = test_batch.batch["responses"]
+            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+            ground_truths = [
+                item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
+            ]
 
             # evaluate using reward_function
             result = self._compute_or_extract_reward(test_batch, reward_fn=self.val_reward_fn, return_dict=True)
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
-            sample_scores.extend(scores)
-
-            reward_extra_infos_dict["reward"].extend(scores)
             reward_extra_info = result.get("reward_extra_info", {})
-            for key, values in reward_extra_info.items():
-                if key not in reward_extra_infos_dict:
-                    reward_extra_infos_dict[key] = []
-                if isinstance(values, np.ndarray):
-                    reward_extra_infos_dict[key].extend(values.tolist())
-                else:
-                    reward_extra_infos_dict[key].extend(values if isinstance(values, list) else [values])
+
+            # TODO@Weiwei [Done]: aggregate sub-seqs per gen_uid → one score per rollout slot.
+            # Multi-agent: k sub-seqs share same gen_uid (inherited from input); sum their rewards
+            # so process_validation_metrics sees mean@n (n rollout attempts) not mean@k (k sub-seqs).
+            gen_uid_arr = test_batch.non_tensor_batch.get("gen_uid")
+            if gen_uid_arr is not None:
+                ordered_guids, seen_guids_set = [], set()
+                gid_first_idx, gid_agg_score = {}, {}
+                for i, gid in enumerate(gen_uid_arr):
+                    gid = str(gid)
+                    if gid not in seen_guids_set:
+                        seen_guids_set.add(gid)
+                        ordered_guids.append(gid)
+                        gid_first_idx[gid] = i
+                        gid_agg_score[gid] = scores[i]
+                    else:
+                        # take max: correct for both "same reward per sub-seq" designs
+                        # (e.g. CoSer gives same reward to all character agents) and
+                        # "terminal reward" designs (only last sub-seq is non-zero).
+                        gid_agg_score[gid] = max(gid_agg_score[gid], scores[i])
+
+                agg_scores = [gid_agg_score[g] for g in ordered_guids]
+                agg_uids = [str(test_batch.non_tensor_batch["uid"][gid_first_idx[g]]) for g in ordered_guids]
+                agg_inputs = [input_texts[gid_first_idx[g]] for g in ordered_guids]
+                agg_outputs = [output_texts[gid_first_idx[g]] for g in ordered_guids]
+                agg_gts = [ground_truths[gid_first_idx[g]] for g in ordered_guids]
+                agg_data_sources = [
+                    test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(test_batch))[gid_first_idx[g]]
+                    for g in ordered_guids
+                ]
+                sample_scores.extend(agg_scores)
+                sample_uids.extend(agg_uids)
+                sample_inputs.extend(agg_inputs)
+                sample_outputs.extend(agg_outputs)
+                sample_gts.extend(agg_gts)
+                sample_indices.extend([test_batch.non_tensor_batch["extra_info"][gid_first_idx[g]].get("index") for g in ordered_guids])
+                reward_extra_infos_dict["reward"].extend(agg_scores)
+                for key, values in reward_extra_info.items():
+                    vals = values.tolist() if isinstance(values, np.ndarray) else (values if isinstance(values, list) else [values])
+                    if key not in reward_extra_infos_dict:
+                        reward_extra_infos_dict[key] = []
+                    reward_extra_infos_dict[key].extend([vals[gid_first_idx[g]] for g in ordered_guids])
+                data_source_lst.append(np.array(agg_data_sources))
+            else:
+                sample_scores.extend(scores)
+                sample_uids.extend(test_batch.non_tensor_batch["uid"])
+                sample_inputs.extend(input_texts)
+                sample_outputs.extend(output_texts)
+                sample_gts.extend(ground_truths)
+                sample_indices.extend([e.get("index") for e in test_batch.non_tensor_batch["extra_info"]])
+                reward_extra_infos_dict["reward"].extend(scores)
+                for key, values in reward_extra_info.items():
+                    if key not in reward_extra_infos_dict:
+                        reward_extra_infos_dict[key] = []
+                    if isinstance(values, np.ndarray):
+                        reward_extra_infos_dict[key].extend(values.tolist())
+                    else:
+                        reward_extra_infos_dict[key].extend(values if isinstance(values, list) else [values])
+                data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
 
             # collect num_turns of each prompt
             if "__num_turns__" in test_batch.non_tensor_batch:
                 sample_turns.append(test_batch.non_tensor_batch["__num_turns__"])
-
-            data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
@@ -715,6 +799,7 @@ class RayPPOTrainer:
                 scores=sample_scores,
                 reward_extra_infos_dict=reward_extra_infos_dict,
                 dump_path=val_data_dir,
+                indices=sample_indices,
             )
 
         for key_info, lst in reward_extra_infos_dict.items():
@@ -722,7 +807,19 @@ class RayPPOTrainer:
 
         data_sources = np.concatenate(data_source_lst, axis=0)
 
-        data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
+        # Compute global means for all/* keys directly from flat lists (true cross-source average)
+        global_all_metrics = {}
+        for var_name, vals in reward_extra_infos_dict.items():
+            if (var_name.startswith("all/") or var_name == "all") and vals:
+                numeric_vals = [v for v in vals if v is not None and not isinstance(v, str)]
+                if numeric_vals:
+                    global_all_metrics[var_name] = np.mean(numeric_vals)
+
+        # Filter out all/* keys so process_validation_metrics doesn't re-aggregate them per source
+        filtered_infos_dict = {k: v for k, v in reward_extra_infos_dict.items()
+                               if not (k.startswith("all/") or k == "all")}
+
+        data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, filtered_infos_dict)
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
             core_var = "acc" if "acc" in var2metric2val else "reward"
@@ -739,6 +836,9 @@ class RayPPOTrainer:
                         metric_sec = "val-aux"
                     pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = metric_val
+
+        for var_name, mean_val in global_all_metrics.items():
+            metric_dict[f"val-core/{var_name}"] = mean_val
 
         if len(sample_turns) > 0:
             sample_turns = np.concatenate(sample_turns)
@@ -909,6 +1009,8 @@ class RayPPOTrainer:
         # we should create rollout at the end so that vllm can have a better estimation of kv cache memory
         self.actor_rollout_wg = all_wg[str(actor_role)]
         self.actor_rollout_wg.init_model()
+        if self.use_opd:  # TODO(OPD)@Weiwei [Done] init teacher after actor model is ready
+            self.actor_rollout_wg.init_opd_teacher()
 
         if self.ref_in_actor:
             self.ref_policy_wg = self.actor_rollout_wg
@@ -1103,12 +1205,27 @@ class RayPPOTrainer:
             dp_rank_mapping = worker_group._dispatch_info[role]
         return max(dp_rank_mapping) + 1
 
+    def _pad_dummy_sample(self, batch: DataProto, pad_to: int) -> tuple[DataProto, str]:
+        """TODO@Weiwei [Done]: pad batch to multiple of pad_to with zero-mask dummies."""
+        n_pad = pad_to - len(batch) % pad_to
+        dummy = deepcopy(batch[0:1])
+        dummy.batch["response_mask"] = torch.zeros_like(dummy.batch["response_mask"])
+        dummy.batch["attention_mask"] = torch.zeros_like(dummy.batch["attention_mask"])
+        gen_uid_dummy = str(uuid.uuid4())
+        dummy.non_tensor_batch["uid"] = np.array([str(uuid.uuid4())], dtype=object)
+        # only set gen_uid if original batch has it (e.g. not present in SFT batches)
+        if "gen_uid" in batch.non_tensor_batch:
+            dummy.non_tensor_batch["gen_uid"] = np.array([gen_uid_dummy], dtype=object)
+        batch = DataProto.concat([batch] + [dummy] * n_pad)
+        return batch, gen_uid_dummy
+
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
         attention_mask = batch.batch["attention_mask"]
         batch_size = attention_mask.shape[0]
         global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
         workload_lst = calculate_workload(global_seqlen_lst)
+
         # Get dp_size from dispatch info to correctly balance across data parallel ranks
         # Note: world_size may include tensor/pipeline parallel dimensions, but we only want DP
         dp_size = self._get_dp_size(self.actor_rollout_wg, "actor")
@@ -1208,6 +1325,9 @@ class RayPPOTrainer:
         batch.meta_info["multi_turn"] = rollout_config.multi_turn.enable
         # TODO: Make "temperature" single source of truth from generation.
         batch.meta_info["temperature"] = rollout_config.temperature
+        if self.use_topk_opd:  # TODO@Weiwei[OPD-TopK] pass opd_alpha for top-k KL loss scaling
+            batch.meta_info["opd_alpha"] = self.config.algorithm.get("opd_alpha", 1.0)
+            batch.meta_info["opd_clip"] = self.config.algorithm.get("opd_clip", 5.0)
         # update actor
         if self.use_legacy_worker_impl == "disable":
             batch_td = batch.to_tensordict()
@@ -1238,6 +1358,62 @@ class RayPPOTrainer:
         else:
             actor_output = self.actor_rollout_wg.update_actor(batch)
         return actor_output
+
+    def _compute_opd_advantage(self, batch: DataProto) -> dict:
+        """TODO(OPD)@Weiwei [Done] compute per-token OPD advantage and add to batch advantages.
+
+        Teacher log probs computed on OPD subset only (samples with non-empty teacher_prompt_ids).
+        A_teacher[t] = log pi_teacher(a_t) - log pi_student(a_t), zero for non-OPD samples.
+        Combined: advantages += alpha * A_teacher (broadcasts scalar GRPO adv + per-token OPD adv).
+        """
+        from verl.trainer.ppo.core_algos import compute_opd_advantage
+
+        alpha = self.config.algorithm.get("opd_alpha", 0.1)
+        clip = self.config.algorithm.get("opd_clip", 5.0)
+        estimator = self.config.algorithm.get("opd_estimator", "local")
+        discount = self.config.algorithm.get("opd_discount", 0.99)
+        window = self.config.algorithm.get("opd_window", 32)
+        normalize = self.config.algorithm.get("opd_normalize", False)
+        teacher_output = self.actor_rollout_wg.compute_teacher_log_probs(batch)
+        batch.union(teacher_output)
+
+        # TODO@Weiwei[OPD-TopK] in topk mode, skip single-token OPD advantage (top-k KL loss in update_policy replaces it)
+        if self.use_topk_opd:
+            return {"opd/mode": "topk"}
+
+        teacher_log_probs = batch.batch["teacher_log_probs"]   # [B, resp_len]
+        student_log_probs = batch.batch["old_log_probs"]        # [B, resp_len]
+        response_mask = batch.batch["response_mask"]            # [B, resp_len]
+        opd_mask = batch.batch["opd_mask"]                      # [B]
+
+        grpo_adv_before = batch.batch["advantages"].clone()
+        opd_adv = compute_opd_advantage(teacher_log_probs, student_log_probs, response_mask, opd_mask,
+                                        estimator=estimator, clip=clip, discount=discount, window=window, normalize=normalize,
+                                        index=batch.non_tensor_batch.get("uid"))
+        batch.batch["advantages"] = grpo_adv_before + alpha * opd_adv
+        active = response_mask.bool() & opd_mask.bool().unsqueeze(-1)  # [B, resp_len]
+        n_opd = opd_mask.sum().item()
+        grpo_abs_mean = grpo_adv_before[response_mask.bool()].abs().mean().item()
+        if active.any():
+            opd_vals = opd_adv[active]
+            opd_abs_mean = opd_vals.abs().mean().item()
+            metrics = {
+                "opd/n_opd_samples": n_opd,
+                "opd/adv_mean": opd_vals.mean().item(),
+                "opd/adv_abs_mean": opd_abs_mean,
+                "opd/adv_std": opd_vals.std().item(),
+                "opd/adv_max": opd_vals.max().item(),
+                "opd/adv_min": opd_vals.min().item(),
+                "opd/alpha_adv_abs_mean": alpha * opd_abs_mean,
+                "opd/grpo_adv_abs_mean": grpo_abs_mean,
+            }
+        else:
+            metrics = {
+                "opd/n_opd_samples": 0,
+                "opd/grpo_adv_abs_mean": grpo_abs_mean,
+            }
+        return metrics
+
 
     def _update_critic(self, batch: DataProto) -> DataProto:
         if self.use_legacy_worker_impl == "disable":
@@ -1352,6 +1528,10 @@ class RayPPOTrainer:
                 gen_batch_output = gen_batch.repeat(
                     repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
                 )
+                # TODO@Weiwei [Done]: assign gen_uid per rollout slot; multi-agent sub-seqs inherit via extra_fields
+                gen_batch_output.non_tensor_batch["gen_uid"] = np.array(
+                    [str(uuid.uuid4()) for _ in range(len(gen_batch_output))], dtype=object
+                )
 
                 is_last_step = self.global_steps >= self.total_training_steps
                 with marked_timer("step", timing_raw):
@@ -1400,12 +1580,30 @@ class RayPPOTrainer:
                             batch.batch["reward_baselines"] = reward_baseline_tensor
 
                             del rm_scores, gen_baseline_batch, gen_baseline_output
-                    # repeat to align with repeated responses in rollout
-                    batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+                    # TODO@Weiwei [Done]: uid-aware expansion supports variable k sub-seqs per rollout
+                    rollout_n = self.config.actor_rollout_ref.rollout.n
+                    gen_out_uid = gen_batch_output.non_tensor_batch.get("uid")
+                    if gen_out_uid is not None and len(gen_batch_output) != len(batch) * rollout_n:
+                        # multi-agent: variable k sub-seqs → reindex batch rows by uid
+                        uid_to_idx = {u: i for i, u in enumerate(batch.non_tensor_batch["uid"])}
+                        batch = batch[np.array([uid_to_idx[u] for u in gen_out_uid])]
+                    else:
+                        batch = batch.repeat(repeat_times=rollout_n, interleave=True)
                     batch = batch.union(gen_batch_output)
 
+                    # Ensure response_mask exists before padding: _pad_dummy_sample needs it to zero out dummies.
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
+
+                    # TODO@Weiwei [Done]: pad main batch to be divisible by dp_size.
+                    # _balance_batch, _compute_old_log_prob, _compute_ref_log_prob, _compute_values,
+                    # _update_actor, and _update_critic all dispatch to workers that require
+                    # batch_size % dp_size == 0. Multi-agent rollouts produce variable-length
+                    # batches that may not satisfy this. Dummies have response_mask=0 so their
+                    # loss / reward / advantage contribution is zero.
+                    _main_dp_size = self._get_dp_size(self.actor_rollout_wg, "actor")
+                    if len(batch) % _main_dp_size != 0:
+                        batch, _ = self._pad_dummy_sample(batch, _main_dp_size)
                     # Balance the number of valid tokens across DP ranks.
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
@@ -1452,7 +1650,11 @@ class RayPPOTrainer:
                         )
                     else:  # Recompute old_log_probs
                         with marked_timer("old_log_prob", timing_raw, color="blue"):
-                            old_log_prob, old_log_prob_mfu = self._compute_old_log_prob(batch)
+                            if self.use_topk_opd:  # TODO@Weiwei[OPD-TopK] extract student topk ids with old log probs
+                                old_log_prob = self.actor_rollout_wg.compute_old_log_prob_and_topk(batch)
+                                old_log_prob_mfu = 0
+                            else:
+                                old_log_prob, old_log_prob_mfu = self._compute_old_log_prob(batch)
                             entropys = old_log_prob.batch["entropys"]
                             response_masks = batch.batch["response_mask"]
                             actor_config = self.config.actor_rollout_ref.actor
@@ -1538,6 +1740,12 @@ class RayPPOTrainer:
                             config=self.config.algorithm,
                         )
 
+                    # TODO(OPD)@Weiwei [Done] add per-token teacher advantage after GRPO advantage
+                    if self.use_opd:
+                        with marked_timer("opd_advantage", timing_raw, color="teal"):
+                            opd_metrics = self._compute_opd_advantage(batch)
+                        metrics.update(opd_metrics)
+
                     # update critic
                     if self.use_critic:
                         with marked_timer("update_critic", timing_raw, color="pink"):
@@ -1552,6 +1760,10 @@ class RayPPOTrainer:
                             actor_output = self._update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
+
+                        # TODO(OPD)@Weiwei [Done] EMA update after actor weights change
+                        if self.use_opd:
+                            self.actor_rollout_wg.update_teacher_ema()
 
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
@@ -1615,6 +1827,7 @@ class RayPPOTrainer:
                     }
                 )
                 # collect metrics
+                batch.meta_info["n"] = self.config.actor_rollout_ref.rollout.n
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo

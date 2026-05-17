@@ -211,9 +211,9 @@ def _get_input_embeds(
         pixel_values = torch.zeros((16, patch_dim), dtype=inputs_embeds.dtype, device=inputs_embeds.device)
         image_grid_thw = torch.tensor([[1, 4, 4]], dtype=torch.long, device=inputs_embeds.device)
         image_embeds, dummy_deepstack_image_embeds = model.visual(pixel_values, grid_thw=image_grid_thw)
-        inputs_embeds += 0.0 * image_embeds.mean()
+        inputs_embeds = inputs_embeds + 0.0 * image_embeds.mean()
         for emb in dummy_deepstack_image_embeds or []:
-            inputs_embeds += 0.0 * emb.mean()
+            inputs_embeds = inputs_embeds + 0.0 * emb.mean()
 
     if attention_mask is not None:
         attention_mask = attention_mask.to(inputs_embeds.device)
@@ -230,6 +230,8 @@ def _get_input_embeds(
 class Qwen3VLCausalLMOutputForPPO(Qwen3VLCausalLMOutputWithPast):
     log_probs: Optional[torch.FloatTensor] = None
     entropy: Optional[torch.FloatTensor] = None
+    gathered_log_probs: Optional[torch.FloatTensor] = None  # TODO@Weiwei[OPD-TopK] student log probs at top-k positions
+    topk_ids: Optional[torch.LongTensor] = None  # TODO@Weiwei[OPD-TopK] extracted top-k token ids
 
 
 def qwen3_vl_base_forward(
@@ -289,16 +291,46 @@ def forward_with_torch_backend(
     else:
         raise RuntimeError("To use forward_with_torch_backend, either labels or input_ids must be provided.")
 
-    fused_linear_for_ppo = FusedLinearForPPO()
-    log_probs, entropy = fused_linear_for_ppo.forward(
-        hidden_states=hidden_states,
-        vocab_weights=self.lm_head.weight,
-        input_ids=rolled_labels,
-        temperature=temperature,
-    )
+    # TODO@Weiwei[OPD-TopK] gather_ids: use topk kernel to gather log probs at student's top-k positions
+    gather_ids = kwargs.pop("gather_ids", None)
+
+    if gather_ids is not None:
+        from verl.utils.experimental.torch_topk_functional import FusedLinearForPPOTopK
+
+        fused_topk = FusedLinearForPPOTopK()
+        log_probs, entropy, gathered_log_probs = fused_topk.forward(
+            hidden_states=hidden_states,
+            vocab_weights=self.lm_head.weight,
+            input_ids=rolled_labels,
+            gather_ids=gather_ids,
+            temperature=temperature,
+        )
+    else:
+        fused_linear_for_ppo = FusedLinearForPPO()
+        log_probs, entropy = fused_linear_for_ppo.forward(
+            hidden_states=hidden_states,
+            vocab_weights=self.lm_head.weight,
+            input_ids=rolled_labels,
+            temperature=temperature,
+        )
+        gathered_log_probs = None
+
+    # TODO@Weiwei[OPD-TopK] extract top-k ids from hidden_states (no extra forward pass)
+    topk_ids = None
+    extract_topk_k = kwargs.pop("extract_topk_k", 0)
+    if extract_topk_k > 0:
+        from verl.utils.experimental.torch_topk_functional import FusedLinearForPPOTopK
+
+        fused_topk_extract = FusedLinearForPPOTopK()
+        topk_ids, _ = fused_topk_extract.extract_topk(
+            hidden_states, self.lm_head.weight, extract_topk_k, temperature,
+        )
+
     return Qwen3VLCausalLMOutputForPPO(
         log_probs=log_probs,
         entropy=entropy,
+        gathered_log_probs=gathered_log_probs,
+        topk_ids=topk_ids,
         hidden_states=outputs.hidden_states,
     )
 

@@ -14,6 +14,7 @@
 import asyncio
 import heapq
 import logging
+import math
 import os
 import random
 from abc import ABC, abstractmethod
@@ -466,18 +467,42 @@ class AgentLoopWorkerBase:
             batch.meta_info.get("global_steps", -1), index.tolist(), batch.meta_info.get("validate", False)
         )
 
+        # Optionally limit concurrent agent loops to control KV cache pressure.
+        # max_concurrent_rollouts is a global limit; divide by num_workers so the
+        # total across all workers equals the configured value.
+        max_concurrent = self.config.actor_rollout_ref.rollout.agent.get("max_concurrent_rollouts", None)
+        if max_concurrent is not None:
+            num_workers = self.config.actor_rollout_ref.rollout.agent.num_workers
+            per_worker = math.ceil(max_concurrent / num_workers)
+            semaphore = asyncio.Semaphore(per_worker)
+        else:
+            semaphore = None
+
+        async def _run_with_semaphore(coro):
+            if semaphore is None:
+                return await coro
+            async with semaphore:
+                return await coro
+
         tasks = []
         for i in range(len(batch)):
             trace_this_sample = i in traced_indices
             kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
+            kwargs['global_step'] = trajectory_info[i]['step']
+            kwargs['is_train'] = not trajectory_info[i]['validate']
             tasks.append(
                 asyncio.create_task(
-                    self._run_agent_loop(sampling_params, trajectory_info[i], trace=trace_this_sample, **kwargs)
+                    _run_with_semaphore(
+                        self._run_agent_loop(sampling_params, trajectory_info[i], trace=trace_this_sample, **kwargs)
+                    )
                 )
             )
         outputs = await asyncio.gather(*tasks)
-
-        output = self._postprocess(outputs)
+        # TODO@Weiwei [Done]: flatten list outputs from multi-agent rollouts before postprocess
+        flat = []
+        for o in outputs:
+            flat.extend(o) if isinstance(o, list) else flat.append(o)
+        output = self._postprocess(flat)
 
         return output
 
@@ -512,12 +537,19 @@ class AgentLoopWorkerBase:
                 dataset_cls=self.dataset_cls,
                 dataset_config=self.config.data,
             )
-            output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
-            return await self._agent_loop_postprocess(output, **kwargs)
+            output = await agent_loop.run(sampling_params, **kwargs)
+            # TODO@Weiwei [Done]: handle list[AgentLoopOutput] for multi-agent rollout
+            if isinstance(output, list):
+                return [await self._agent_loop_postprocess(o, **kwargs) for o in output]
+            return [await self._agent_loop_postprocess(output, **kwargs)]
 
     async def _agent_loop_postprocess(self, output, **kwargs) -> _InternalAgentLoopOutput:
         """Perform post-processing operations on the output of each individual agent loop."""
         output.extra_fields["raw_prompt"] = kwargs["raw_prompt"]
+        # TODO@Weiwei [Done]: propagate uid/gen_uid so they survive into output DataProto non_tensor_batch
+        for key in ("uid", "gen_uid"):
+            if key in kwargs and key not in output.extra_fields:
+                output.extra_fields[key] = kwargs[key]
 
         # Some AgentLoop may have already computed the reward score, e.g SWE-agent.
 
@@ -553,25 +585,32 @@ class AgentLoopWorkerBase:
             prompt_output["attention_mask"] = prompt_output["attention_mask"].unsqueeze(0)
 
         self.tokenizer.padding_side = "right"
+        response_length = self.config.actor_rollout_ref.rollout.response_length
         response_output = self.tokenizer.pad(
             {"input_ids": output.response_ids},
             padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
+            max_length=response_length,
             return_tensors="pt",
             return_attention_mask=True,
         )
-        if response_output["input_ids"].dim() == 1:
+        if isinstance(response_output["input_ids"], list):
+            # tokenizer.pad returns a plain list (not tensor) when response_ids is empty
+            response_output["input_ids"] = torch.zeros(1, response_length, dtype=torch.long)
+            response_output["attention_mask"] = torch.zeros(1, response_length, dtype=torch.long)
+        elif response_output["input_ids"].dim() == 1:
             response_output["input_ids"] = response_output["input_ids"].unsqueeze(0)
             response_output["attention_mask"] = response_output["attention_mask"].unsqueeze(0)
 
         response_mask_output = self.tokenizer.pad(
             {"input_ids": output.response_mask},
             padding="max_length",
-            max_length=self.config.actor_rollout_ref.rollout.response_length,
+            max_length=response_length,
             return_tensors="pt",
             return_attention_mask=False,
         )
-        if response_mask_output["input_ids"].dim() == 1:
+        if isinstance(response_mask_output["input_ids"], list):
+            response_mask_output["input_ids"] = torch.zeros(1, response_length, dtype=torch.long)
+        elif response_mask_output["input_ids"].dim() == 1:
             response_mask_output["input_ids"] = response_mask_output["input_ids"].unsqueeze(0)
 
         response_logprobs = None
@@ -760,9 +799,9 @@ class AgentLoopWorkerBase:
 
         # add reward_extra_info to non_tensor_batch
         reward_extra_infos = [input.extra_fields.get("reward_extra_info", {}) for input in inputs]
-        reward_extra_keys = list(reward_extra_infos[0].keys())
+        reward_extra_keys = set(key for info in reward_extra_infos for key in info.keys())
         for key in reward_extra_keys:
-            non_tensor_batch[key] = np.array([info[key] for info in reward_extra_infos])
+            non_tensor_batch[key] = np.array([info.get(key) for info in reward_extra_infos])
 
         # Add multi_modal_inputs to non_tensor_batch if any samples have them
         multi_modal_inputs_list = [input.multi_modal_inputs for input in inputs]
@@ -939,12 +978,17 @@ class AgentLoopManager:
         Returns:
             DataProto: Output batch.
         """
+        import time as _time
+
+        t0 = _time.monotonic()
 
         # Fix for Issue #4147: Always call wake_up() to ensure weight sync
         # The wake_up()/sleep() methods internally check free_cache_engine
         self.wake_up()
         if self.reward_model_manager:
             self.reward_model_manager.wake_up()
+
+        t_wake = _time.monotonic()
 
         chunkes = prompts.chunk(len(self.agent_loop_workers))
         outputs = ray.get(
@@ -953,15 +997,49 @@ class AgentLoopManager:
                 for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
             ]
         )
+
+        t_agent = _time.monotonic()
+
+        # Pad non_tensor_batch and unify reward_extra_keys so mixed-agent outputs
+        # (e.g. coser + lifechoices) with different keys can be concatenated.
+        all_ntb_keys = set().union(*(o.non_tensor_batch.keys() for o in outputs))
+        all_reward_extra_keys = list(set().union(*(o.meta_info.get("reward_extra_keys", []) for o in outputs)))
+        for o in outputs:
+            batch_size = o.batch.batch_size[0]
+            for key in all_ntb_keys:
+                if key not in o.non_tensor_batch:
+                    o.non_tensor_batch[key] = np.full(batch_size, None, dtype=object)
+            o.meta_info["reward_extra_keys"] = all_reward_extra_keys
+
         output = DataProto.concat(outputs)
         # Fix for Issue #4147: Always call sleep() to ensure proper cleanup
         self.sleep()
         if self.reward_model_manager:
             self.reward_model_manager.sleep()
 
+        t_sleep = _time.monotonic()
+
         # calculate performance metrics
         metrics = [output.meta_info.pop("metrics") for output in outputs]  # List[List[Dict[str, str]]]
         timing = self._performance_metrics(metrics, output)
+
+        timing["gen_breakdown/wake_up"] = t_wake - t0
+        timing["gen_breakdown/agent_loop"] = t_agent - t_wake
+        timing["gen_breakdown/sleep"] = t_sleep - t_agent
+        timing["gen_breakdown/total"] = t_sleep - t0
+
+        # Per-sample timing from agent loop (e.g. sotopia/total_time, sotopia/vllm_time)
+        # The wall-clock agent_loop time is bounded by the slowest sample.
+        sample_time_keys = [k for k in output.non_tensor_batch if k.endswith("_time")]
+        for key in sample_time_keys:
+            vals = [float(v) for v in output.non_tensor_batch[key] if v is not None]
+            if vals:
+                short = key.rsplit("/", 1)[-1]  # e.g. "vllm_time"
+                timing[f"gen_breakdown/sample_{short}/mean"] = np.mean(vals)
+                timing[f"gen_breakdown/sample_{short}/max"] = np.max(vals)
+                timing[f"gen_breakdown/sample_{short}/min"] = np.min(vals)
+
+        print(f"[gen_breakdown] wake_up={t_wake - t0:.1f}s  agent_loop={t_agent - t_wake:.1f}s  sleep={t_sleep - t_agent:.1f}s  total={t_sleep - t0:.1f}s")
 
         output.meta_info = {"timing": timing, **outputs[0].meta_info}
         return output
