@@ -1,0 +1,5 @@
+- name: agent_hub
+  _target_: agents.base_agent.AgentHubLoop
+
+- name: openai_agent
+  _target_: agents.base_agent.OpenAIAgentLoop
