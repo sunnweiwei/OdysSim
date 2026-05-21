@@ -3,7 +3,7 @@
   <h1 align="center">Reinforcing Human Behavior Simulation via Verbal Feedback</h1>
 
   [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-  [![arXiv](https://img.shields.io/badge/arXiv-2511.02208-b31b1b.svg)](https://arxiv.org/abs/2511.02208)
+  [![arXiv](https://img.shields.io/badge/arXiv-2605.20506-b31b1b.svg)](http://arxiv.org/abs/2605.20506)
   [![Model](https://img.shields.io/badge/🤗%20Hugging%20Face-Ditto--8B-yellow.svg)](https://huggingface.co/sunweiwei/Ditto-8B)
 </div>
 
@@ -176,8 +176,11 @@ bash eval.sh api
 
 ```bibtex
 @article{sun2026ditto,
-  title  = {Reinforcing Human Behavior Simulation via Verbal Feedback},
-  author = {Sun, Weiwei and Zhou, Xuhui and Liu, Jiarui and Du, Weihua and Sun, Haojia and Xie, Yiqing and Ma, Qianou and Chen, Sihao and Wan, Mengting and Yang, Longqi and Zhou, Pei and Wu, Sherry and Welleck, Sean and Neubig, Graham and Yang, Yiming and Sap, Maarten},
-  year   = {2026}
+  title         = {Reinforcing Human Behavior Simulation via Verbal Feedback},
+  author        = {Sun, Weiwei and Zhou, Xuhui and Liu, Jiarui and Du, Weihua and Sun, Haojia and Xie, Yiqing and Ma, Qianou and Chen, Sihao and Wan, Mengting and Yang, Longqi and Zhou, Pei and Wu, Sherry and Welleck, Sean and Neubig, Graham and Yang, Yiming and Sap, Maarten},
+  year          = {2026},
+  eprint        = {2605.20506},
+  archivePrefix = {arXiv},
+  url           = {http://arxiv.org/abs/2605.20506}
 }
 ```
