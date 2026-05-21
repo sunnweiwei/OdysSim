@@ -1,18 +1,67 @@
 #!/bin/bash
-# Demo RL training entry. Edit data paths / hyperparameters for your setup.
+# Ditto RL training — one task at a time.
+#
+# Data:
+#   train: https://huggingface.co/datasets/sunweiwei/sim-rl-data
+#   eval : https://huggingface.co/datasets/sunweiwei/sim-eval-data
+#
+# Usage:
+#   bash run_rl.sh sotopia
+#   TASK=coser bash run_rl.sh
+#
+# Each TASK trains independently on its own train/val parquet.
+
+set -e
+
+# ── Task ──────────────────────────────────────────────────────────────────────
+TASK="${1:-${TASK:-sotopia}}"
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 OUTPUT_DIR="${OUTPUT_DIR:-outputs}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-rl-demo}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-ditto-rl-${TASK}}"
 
+# Layout assumed after `huggingface-cli download sunweiwei/sim-rl-data` and
+# `sunweiwei/sim-eval-data` into $DATA_DIR.
 data_dir="${DATA_DIR:-data}"
-train_files="$data_dir/train.parquet"
-val_files="$data_dir/val.parquet"
+rl_dir="$data_dir/sim_rl_data"
+val_dir="$data_dir/sim_eval_data"
 
-actor_model_path="${ACTOR_MODEL_PATH:-Qwen3-VL-8B-Instruct}"
+# TASK → (train file, val file) — matches the HF dataset filenames.
+case "$TASK" in
+  sotopia)            train_rel=sotopia_clean_rl.parquet;        val_rel=sotopia_hard_val.parquet ;;
+  coser)              train_rel=coser_rl_train.parquet;          val_rel=coser_val.parquet ;;
+  lifechoices)        train_rel=lifechoices_hard_rl.parquet;     val_rel=lifechoices_val.parquet ;;
+  userllm)            train_rel=userllm_rl_train.parquet;        val_rel=userllm_val.parquet ;;
+  mirrorbench)        train_rel=mirrorbench_rl_train.parquet;    val_rel=mirrorbench_val.parquet ;;
+  fantom)             train_rel=fantom_rl_train.parquet;         val_rel=fantom_val.parquet ;;
+  hitom)              train_rel=hitom_rl_train.parquet;          val_rel=hitom_val.parquet ;;
+  paratomi)           train_rel=paratomi_rl_train.parquet;       val_rel=paratomi_val.parquet ;;
+  mistakes)           train_rel=mistakes_rl_train.parquet;       val_rel=mistakes_val.parquet ;;
+  twinvoice)          train_rel=twinvoice_rl_train.parquet;      val_rel=twinvoice_val.parquet ;;
+  social_r1)          train_rel=social_r1_rl.parquet;            val_rel=social_r1_val.parquet ;;
+  behaviorchain)      train_rel=behaviorchain_rl_train.parquet;  val_rel=behaviorchain_val.parquet ;;
+  sim_math)           train_rel=sim_math_rl.parquet;             val_rel=sim_math_val.parquet ;;
+  sim_doc)            train_rel=sim_doc_rl.parquet;              val_rel=sim_doc_val.parquet ;;
+  humanual_book)      train_rel=humanual_rl_book.parquet;        val_rel=humanual_book_val.parquet ;;
+  humanual_chat)      train_rel=humanual_rl_chat.parquet;        val_rel=humanual_chat_val.parquet ;;
+  humanual_email)     train_rel=humanual_rl_email.parquet;       val_rel=humanual_email_val.parquet ;;
+  humanual_news)      train_rel=humanual_rl_news.parquet;        val_rel=humanual_news_val.parquet ;;
+  humanual_opinion)   train_rel=humanual_rl_opinion.parquet;     val_rel=humanual_opinion_val.parquet ;;
+  humanual_politics)  train_rel=humanual_rl_politics.parquet;    val_rel=humanual_politics_val.parquet ;;
+  alignx)             train_rel=alignx_rl_8k.parquet;            val_rel=alignx_demo_val.parquet ;;
+  socsci210)          train_rel=socsci210_rl_2k.parquet;         val_rel=socsci210_val.parquet ;;
+  humanllm)           train_rel=humanllm_rl_train.parquet;       val_rel=humanllm_val.parquet ;;
+  *) echo "Unknown TASK: $TASK" >&2; exit 1 ;;
+esac
+
+train_files="${TRAIN_FILES:-$rl_dir/$train_rel}"
+val_files="${VAL_FILES:-$val_dir/$val_rel}"
+
+actor_model_path="${ACTOR_MODEL_PATH:-Qwen3-8B-Instruct}"
 
 # ── Hyperparameters ───────────────────────────────────────────────────────────
 default_agent_loop="agent_hub"
+# agent_version: "copy" = Ditto (verbal feedback), "default" = vanilla GRPO.
 agent_version="default"
 
 loss_mode="vanilla"
@@ -98,7 +147,7 @@ NCCL_DEBUG=WARN python3 train_ppo.py \
   trainer.n_gpus_per_node=$n_gpus \
   trainer.nnodes=1 \
   trainer.logger='["console","wandb"]' \
-  trainer.project_name=harmony \
+  trainer.project_name=ditto \
   trainer.experiment_name=$EXPERIMENT_NAME \
   trainer.val_before_train=True \
   trainer.save_freq=$save_freq \
