@@ -41,7 +41,10 @@ critiques of its own behavior.
 
 ## Setup
 
-Run inside the official verl 0.7.0 image `verlai/verl:vllm012.latest`
+> **Note:** This repo is built on top of [verl v0.7.0](https://github.com/verl-project/verl/releases/tag/v0.7.0), with [this patch](https://github.com/sunnweiwei/OdysSim/commit/689ab593a24527ae0ac352b8419ee2bd61152c93) applied to support multi-agent RL (inherited from [FoldGRPO](https://github.com/sunnweiwei/FoldAgent)), on-policy distillation, and several model fixes.
+
+Run inside the official verl 0.7.0 image `verlai/verl:vllm012.latest`.
+
 
 ### Code structure
 
