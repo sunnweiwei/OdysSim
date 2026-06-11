@@ -17,33 +17,35 @@ project. It contains the full pipeline for behavioral foundation models, from
 midtraining on large-scale human-behavior data to task-specific RL,
 verbal-feedback post-training, expert distillation, and SOUL evaluation.
 
-<div align="left">
-  <div style="display:inline-block; width:360px; margin:10px 20px 10px 0; padding:14px; vertical-align:top; text-align:left; border:1px solid #d0d7de; border-radius:18px;">
-    <a href="README_DITTO.md">
-      <img src="assets/ditto-card.png" alt="Ditto" width="340" height="180" style="border-radius:12px; object-fit:cover;">
-    </a>
-    <h3>Ditto</h3>
-    <p><strong>Reinforcing Human Behavior Simulation via Verbal Feedback</strong></p>
-    <p>
-      <a href="README_DITTO.md">Doc</a> ·
-      <a href="http://arxiv.org/abs/2605.20506">Paper</a> ·
-      <a href="https://huggingface.co/sunweiwei/Ditto-8B">Model</a> ·
-      <a href="recipe/ditto">Recipe</a>
-    </p>
-  </div>
-  <div style="display:inline-block; width:360px; margin:10px 20px 10px 0; padding:14px; vertical-align:top; text-align:left; border:1px solid #d0d7de; border-radius:18px;">
-    <a href="assets/Building Foundation Models for Human Behavior Simulation.pdf">
-      <img src="assets/osim-card.png" alt="OdysSim" width="340" height="180" style="border-radius:12px; object-fit:cover;">
-    </a>
-    <h3>OdysSim</h3>
-    <p><strong>Building Foundation Models for Human Behavior Simulation</strong></p>
-    <p>
-      <a href="assets/Building Foundation Models for Human Behavior Simulation.pdf">Paper</a> ·
-      <a href="https://huggingface.co/collections/cmu-lti/odyssim">Models</a> ·
-      <a href="https://huggingface.co/datasets/cmu-lti/osim-mid-training">Data</a>
-    </p>
-  </div>
-</div>
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="README_DITTO.md">
+        <img src="assets/ditto-card.png" alt="Ditto" width="100%">
+      </a>
+      <h3>Ditto</h3>
+      <p><strong>Reinforcing Human Behavior Simulation via Verbal Feedback</strong></p>
+      <p>
+        <a href="README_DITTO.md">Doc</a> ·
+        <a href="http://arxiv.org/abs/2605.20506">Paper</a> ·
+        <a href="https://huggingface.co/sunweiwei/Ditto-8B">Model</a> ·
+        <a href="recipe/ditto">Recipe</a>
+      </p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="assets/Building Foundation Models for Human Behavior Simulation.pdf">
+        <img src="assets/osim-card.png" alt="OdysSim" width="100%">
+      </a>
+      <h3>OdysSim</h3>
+      <p><strong>Building Foundation Models for Human Behavior Simulation</strong></p>
+      <p>
+        <a href="assets/Building Foundation Models for Human Behavior Simulation.pdf">Paper</a> ·
+        <a href="https://huggingface.co/collections/cmu-lti/odyssim">Models</a> ·
+        <a href="https://huggingface.co/datasets/cmu-lti/osim-mid-training">Data</a>
+      </p>
+    </td>
+  </tr>
+</table>
 
 ## Benchmark
 
@@ -62,13 +64,9 @@ verbal-feedback post-training, expert distillation, and SOUL evaluation.
 - **Learning from verbal feedback**: efficient support for verbal-feedback RL,
   forward distillation, and reverse/on-policy distillation from LLM-judge
   critiques.
-- **Task-specific RL and expert distillation**: train one expert per SOUL task
-  with GRPO or verbal-feedback RL, then merge selected expert trajectories back
-  into one deployable model with SFT.
-- **Unified SOUL evaluation suite**: 20+ human-likeness tasks with matching
-  training environments, so evaluation and RL rollouts run on the same stack.
-- **Unified SFT/RL/evaluation framework**: midtraining, post-training, and
-  automatic/API-model evaluation share one code path as much as possible.
+- **Unified SOUL evaluation suite**: 20+ human-likeness tasks with
+  training environments.
+- **Unified SFT/RL/evaluation framework**: midtraining, post-training, and evaluation share one code path.
 
 ## News
 
@@ -80,7 +78,7 @@ verbal-feedback post-training, expert distillation, and SOUL evaluation.
 
 | Model | Link |
 |---|---|
-| OSim-8B | [cmu-lti OdysSim collection](https://huggingface.co/collections/cmu-lti/odyssim) |
+| OSim-8B | [OdysSim collection](https://huggingface.co/collections/cmu-lti/odyssim) |
 | Ditto-8B | [sunweiwei/Ditto-8B](https://huggingface.co/sunweiwei/Ditto-8B) |
 
 ## Setup
