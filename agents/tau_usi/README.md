@@ -19,18 +19,27 @@ first is per-task:
    diff `0.0`) to AgentArena across 33 models × 7 metrics.
 
 ECE difficulty bins are **fixed to AgentArena's 31 published baselines**
-(`usi_metric.PUBLISHED_BASELINES`, `difficulty_files=baselines`) so a new model is
-scored on the same yardstick as the leaderboard.
+(`usi_metric.PUBLISHED_BASELINES`) so a new model is scored on the same yardstick
+as the leaderboard. The bins are precomputed and **shipped frozen** in
+`tau_usi_difficulty.json` (a ~6 KB `{task_key: pooled_success}` map) — the only
+thing the 135 MB of baseline `eval_results` were needed for — so scoring needs
+neither those files nor a recompute. Re-freeze if the baselines change:
+
+```bash
+python -m agents.tau_usi.usi_metric --eval-results-dir data/tau_usi/eval_results
+```
 
 ### Data setup (gitignored mirror)
 
-The human annotations + baselines live on the AgentArena box (not in git). Mirror
-them into `data/tau_usi/` (or set `$TAU_USI_DATA_DIR`):
+The frozen difficulty is in git, so the **only required** sync is the human
+annotations; surveys (for the Eval term) and baselines (for `--print-all` /
+`--difficulty baselines`) are optional. Mirror from the AgentArena box into
+`data/tau_usi/` (or set `$TAU_USI_DATA_DIR`):
 
 ```bash
-rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/tau_bench_tasks_unified.json' data/tau_usi/
-rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/survey_data/'  data/tau_usi/survey_data/
-rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/eval_results/' data/tau_usi/eval_results/
+rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/tau_bench_tasks_unified.json' data/tau_usi/  # required
+rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/survey_data/'  data/tau_usi/survey_data/      # optional: Eval term
+rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/eval_results/' data/tau_usi/eval_results/     # optional: leaderboard
 ```
 
 ### Run

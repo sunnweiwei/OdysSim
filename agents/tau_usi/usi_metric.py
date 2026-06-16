@@ -85,6 +85,45 @@ def resolve_baselines(eval_results_dir, names=None):
             if (eval_results_dir / f"eval_results_{n}.json").exists()]
 
 
+# Frozen ECE difficulty map shipped with the repo (task_key -> pooled success
+# over the published baselines). Lets scoring run without the ~135MB of baseline
+# eval_results — the difficulty is the only thing they were needed for.
+FROZEN_DIFFICULTY_PATH = Path(__file__).resolve().parent / "tau_usi_difficulty.json"
+
+
+def compute_difficulty_map(eval_results_dir, names=None):
+    """Compute the ECE difficulty dict from baseline eval_results files.
+
+    Returns ``(difficulty, used_names)`` where difficulty is ``{task_key: float}``
+    (pooled success across all baseline runs) and used_names is the baselines
+    actually found. This is the value that :func:`compute_all_with_variance`
+    derives from ``difficulty_files`` — freezing it avoids recomputation.
+    """
+    paths = resolve_baselines(eval_results_dir, names)
+    difficulty = compute_difficulty([per_run_rewards(p) for p in paths])
+    return difficulty, [p.stem.replace("eval_results_", "") for p in paths]
+
+
+def dump_difficulty(difficulty: dict, path, source: str = "PUBLISHED_BASELINES", n_baselines: int | None = None):
+    """Write the difficulty map to JSON with provenance (sorted, stable)."""
+    payload = {
+        "source": source,
+        "n_baselines": n_baselines,
+        "n_tasks": len(difficulty),
+        "difficulty": {k: difficulty[k] for k in sorted(difficulty)},
+    }
+    Path(path).write_text(json.dumps(payload, indent=2))
+
+
+def load_difficulty(path=None) -> dict:
+    """Load a frozen difficulty map. Accepts the structured ``{difficulty: ...}``
+    payload or a flat ``{task_key: float}`` map. Defaults to the shipped file."""
+    path = Path(path) if path is not None else FROZEN_DIFFICULTY_PATH
+    data = json.loads(Path(path).read_text())
+    raw = data["difficulty"] if isinstance(data, dict) and "difficulty" in data else data
+    return {k: float(v) for k, v in raw.items()}
+
+
 def task_key(s: str) -> str:
     """Collapse an instance id to ``{domain}_{task_index}`` (drops the run suffix)."""
     m = re.match(r"^(airline|retail)_(\d+)", s)
@@ -389,16 +428,18 @@ def _model_label(path) -> str:
     return stem
 
 
-def compute_all_with_variance(batches, llm_files, survey_dir=None, difficulty_files=None):
+def compute_all_with_variance(batches, llm_files, survey_dir=None, difficulty_files=None, difficulty=None):
     """Compute mean+/-std for every cell of the USI table (CANONICAL metric).
 
     USI = mean(D1_conv, D2_info, D3_clarif, D4_react, [eval_agree,] (1-ECE)*100),
     averaged over the 3 human annotation batches.
 
-    difficulty_files (optional): paths whose pooled success defines the ECE
-    difficulty bins. Defaults to llm_files (self-pooled; reproduces the paper).
-    Pass a fixed reference set (e.g. the published baselines) to score added
-    models against an uncontaminated difficulty.
+    ECE difficulty bins (one of, in priority order):
+      * ``difficulty``: a precomputed ``{task_key: float}`` map (e.g. the frozen
+        :func:`load_difficulty`) — no baseline files needed.
+      * ``difficulty_files``: paths whose pooled success defines the bins (a fixed
+        reference set scores added models against an uncontaminated difficulty).
+      * neither: self-pooled over ``llm_files`` (reproduces the paper).
 
     Returns a list of result dicts, each with keys: name, D1_conv, D2_info,
     D3_clarif, D4_react, eval_agree, ece, usi -- each (mean, std) or None.
@@ -408,10 +449,11 @@ def compute_all_with_variance(batches, llm_files, survey_dir=None, difficulty_fi
     # ── Canonical ECE setup: per-run rewards + pooled difficulty across all sims ──
     llm_paths = [Path(f).resolve() for f in llm_files]
     all_per_run = [per_run_rewards(p) for p in llm_paths]
-    if difficulty_files is None:
-        difficulty = compute_difficulty(all_per_run)
-    else:
-        difficulty = compute_difficulty([per_run_rewards(Path(f).resolve()) for f in difficulty_files])
+    if difficulty is None:
+        if difficulty_files is None:
+            difficulty = compute_difficulty(all_per_run)
+        else:
+            difficulty = compute_difficulty([per_run_rewards(Path(f).resolve()) for f in difficulty_files])
     h_batches = [batch_rewards(b) for b in batches]
 
     # ── Human-human baseline (3 pairs) ──────────────────────────────────────
@@ -550,3 +592,22 @@ def compute_all_with_variance(batches, llm_files, survey_dir=None, difficulty_fi
         })
 
     return results
+
+
+def _freeze_cli(argv=None):
+    """Recompute and write the frozen ECE difficulty map from baseline files."""
+    import argparse
+    ap = argparse.ArgumentParser(description="Freeze the tau-USI ECE difficulty map from baseline eval_results.")
+    ap.add_argument("--eval-results-dir", required=True, help="dir of baseline eval_results_*.json")
+    ap.add_argument("--out", default=str(FROZEN_DIFFICULTY_PATH), help=f"output JSON (default: {FROZEN_DIFFICULTY_PATH})")
+    a = ap.parse_args(argv)
+    difficulty, used = compute_difficulty_map(a.eval_results_dir)
+    if len(used) != len(PUBLISHED_BASELINES):
+        print(f"WARNING: {len(used)}/{len(PUBLISHED_BASELINES)} baselines found; "
+              "freeze pools over only those present.")
+    dump_difficulty(difficulty, a.out, source="PUBLISHED_BASELINES", n_baselines=len(used))
+    print(f"froze {len(difficulty)} task difficulties from {len(used)} baselines -> {a.out}")
+
+
+if __name__ == "__main__":
+    _freeze_cli()

@@ -14,9 +14,16 @@ Layout of the data dir (default ``<repo>/data/tau_usi``, override with
 ``--data-dir`` or ``$TAU_USI_DATA_DIR``), mirrored from AgentArena's
 ``annotation_analysis/data``::
 
-    tau_bench_tasks_unified.json     # 165 tasks x 3 human annotators
-    eval_results/eval_results_*.json # published baselines (ECE difficulty ref)
-    survey_data/survey_comparable_*.json  # for the Eval (survey agreement) term
+    tau_bench_tasks_unified.json     # 165 tasks x 3 human annotators (REQUIRED)
+    survey_data/survey_comparable_*.json  # optional: for the Eval term
+    eval_results/eval_results_*.json # optional: only for --difficulty baselines
+                                     #           or the --print-all leaderboard
+
+The ECE difficulty bins are shipped frozen in ``tau_usi_difficulty.json`` (a
+~6 KB ``{task_key: pooled_success}`` map, the only thing the 135 MB of baseline
+``eval_results`` were needed for), so the default ``--difficulty frozen`` scores
+a model from just ``tau_bench_tasks_unified.json``. Re-freeze when the baselines
+change with ``python -m agents.tau_usi.usi_metric --eval-results-dir <dir>``.
 
 Usage::
 
@@ -128,20 +135,28 @@ def main(argv=None):
     p.add_argument("--data-dir", default=None, help="tau_usi data dir (default <repo>/data/tau_usi or $TAU_USI_DATA_DIR)")
     p.add_argument("--label", default=None, help="model tag (default: derived from filename)")
     p.add_argument("--out-dir", default=None, help="where to write converted + metrics JSON (default: input's dir)")
-    p.add_argument("--difficulty", choices=["baselines", "self"], default="baselines",
-                   help="ECE difficulty reference: 'baselines' (fixed published yardstick, default) or 'self' (paper self-pooled)")
+    p.add_argument("--difficulty", choices=["frozen", "baselines", "self"], default="frozen",
+                   help="ECE difficulty reference: 'frozen' (shipped tau_usi_difficulty.json, needs no baseline "
+                        "files — default), 'baselines' (recompute from local eval_results), or 'self' (paper self-pooled)")
+    p.add_argument("--difficulty-json", default=None,
+                   help=f"frozen difficulty map to use (default: {um.FROZEN_DIFFICULTY_PATH.name} next to usi_metric.py)")
     p.add_argument("--emit-survey-comparable", action="store_true",
                    help="derive survey_comparable_<label>.json from the eval's surveys so the model gets an Eval term (partial: human batch 1 only)")
-    p.add_argument("--print-all", action="store_true", help="print the full leaderboard, not just the scored model")
+    p.add_argument("--print-all", action="store_true", help="print the full leaderboard, not just the scored model (needs baseline eval_results)")
     args = p.parse_args(argv)
 
     data_dir = Path(args.data_dir) if args.data_dir else _default_data_dir()
     unified = data_dir / "tau_bench_tasks_unified.json"
     ev_dir = data_dir / "eval_results"
     survey_dir = data_dir / "survey_data"
-    for path, what in [(unified, "tau_bench_tasks_unified.json"), (ev_dir, "eval_results/")]:
-        if not path.exists():
-            p.error(f"missing {what} under {data_dir} (sync it from the AgentArena box; see module docstring)")
+    if not unified.exists():
+        p.error(f"missing tau_bench_tasks_unified.json under {data_dir} (sync from the AgentArena box; see module docstring)")
+    # Baseline eval_results are only needed to recompute difficulty or to print
+    # the leaderboard; the frozen map makes them optional otherwise.
+    need_baselines = args.difficulty == "baselines" or args.print_all
+    if need_baselines and not ev_dir.exists():
+        p.error(f"missing eval_results/ under {data_dir}; needed for --difficulty baselines / --print-all "
+                "(or use the default --difficulty frozen, which needs no baselines)")
 
     in_path = Path(args.input)
     label = args.label or in_path.stem.replace("_task_results", "").replace("eval_results_", "")
@@ -160,15 +175,29 @@ def main(argv=None):
         sp = emit_survey_comparable(eval_results, survey_dir, label)
         print(f"[score_eval] survey_comparable -> {sp}" if sp else "[score_eval] no surveys to emit")
 
-    baselines = um.resolve_baselines(ev_dir)
-    missing = len(um.PUBLISHED_BASELINES) - len(baselines)
-    if missing:
-        print(f"[score_eval] WARNING: {missing}/{len(um.PUBLISHED_BASELINES)} published baselines "
-              f"absent locally; difficulty pools over the {len(baselines)} present (numbers may drift).")
+    baselines = um.resolve_baselines(ev_dir) if ev_dir.exists() else []
+
+    # ── ECE difficulty: frozen map (default) needs no baseline files ──
+    difficulty = None
+    diff_files = None
+    if args.difficulty == "frozen":
+        difficulty = um.load_difficulty(args.difficulty_json)
+        print(f"[score_eval] difficulty: frozen map ({len(difficulty)} tasks) — no baselines needed")
+    elif args.difficulty == "baselines":
+        diff_files = baselines
+        missing = len(um.PUBLISHED_BASELINES) - len(baselines)
+        if missing:
+            print(f"[score_eval] WARNING: {missing}/{len(um.PUBLISHED_BASELINES)} baselines absent; "
+                  f"difficulty pools over the {len(baselines)} present (numbers may drift from frozen).")
+    # else 'self': difficulty/diff_files stay None (self-pooled over llm_files)
+
+    # Include baselines as leaderboard rows only when printing the full table.
+    llm_files = ([*baselines, converted_path] if (args.print_all and baselines) else [converted_path])
+    survey_arg = survey_dir if survey_dir.exists() else None
 
     batches = um.load_batches_from_unified(unified)
-    diff_files = baselines if args.difficulty == "baselines" else None
-    results = um.compute_all_with_variance(batches, baselines + [converted_path], survey_dir, difficulty_files=diff_files)
+    results = um.compute_all_with_variance(
+        batches, llm_files, survey_arg, difficulty_files=diff_files, difficulty=difficulty)
 
     by_name = {r["name"]: r for r in results}
     row = by_name.get(label)
@@ -185,7 +214,7 @@ def main(argv=None):
     metrics = {
         "label": label,
         "difficulty_reference": args.difficulty,
-        "n_baselines_used": len(baselines),
+        "n_baselines_used": len(baselines) if need_baselines else 0,
         "model": _ser(row) if row else None,
         "human_inter_annotator": _ser(by_name["Human (inter-ann.)"]),
     }

@@ -107,26 +107,47 @@ GOLDEN_OSIM_8B_V6 = {
 }
 
 
-@pytest.mark.skipif(not _HAVE_DATA, reason="tau_usi data mirror not present (sync from AgentArena box)")
-def test_golden_osim_8b_v6():
-    baselines = um.resolve_baselines(EV_DIR)
-    assert len(baselines) == len(um.PUBLISHED_BASELINES), "expected all 31 baselines present"
-
+def _score_v6(difficulty=None, difficulty_files=None):
     payload = score_eval.json.loads(TASK_RESULTS.read_text())
     eval_results = score_eval.task_results_to_eval_results(payload)
-    model_path = DATA_DIR / "eval_results" / "_golden_osim-8b-v6.json"
+    model_path = EV_DIR / "_golden_osim-8b-v6.json"
     model_path.write_text(score_eval.json.dumps(eval_results))
     try:
         batches = um.load_batches_from_unified(UNIFIED)
+        files = ([model_path] if difficulty is not None
+                 else um.resolve_baselines(EV_DIR) + [model_path])
         results = um.compute_all_with_variance(
-            batches, baselines + [model_path], SURVEY_DIR, difficulty_files=baselines)
+            batches, files, SURVEY_DIR, difficulty_files=difficulty_files, difficulty=difficulty)
     finally:
         model_path.unlink(missing_ok=True)
+    return {r["name"]: r for r in results}["_golden_osim-8b-v6"]
 
-    row = {r["name"]: r for r in results}["_golden_osim-8b-v6"]
+
+def _assert_golden(row):
     for key, expected in GOLDEN_OSIM_8B_V6.items():
         got = row[key]
         if expected is None:
             assert got is None, f"{key}: expected None, got {got}"
         else:
             assert got[0] == pytest.approx(expected, abs=1e-9), f"{key}: {got[0]} != {expected}"
+
+
+def test_frozen_difficulty_file_shipped():
+    # committed alongside usi_metric.py — not data-gated
+    diff = um.load_difficulty()
+    assert len(diff) == 165
+    assert all(0.0 <= v <= 1.0 for v in diff.values())
+
+
+@pytest.mark.skipif(not _HAVE_DATA, reason="tau_usi data mirror not present (sync from AgentArena box)")
+def test_golden_osim_8b_v6_from_baselines():
+    assert len(um.resolve_baselines(EV_DIR)) == len(um.PUBLISHED_BASELINES), "expected all 31 baselines present"
+    _assert_golden(_score_v6(difficulty_files=um.resolve_baselines(EV_DIR)))
+
+
+@pytest.mark.skipif(not _HAVE_DATA, reason="tau_usi data mirror not present (sync from AgentArena box)")
+def test_golden_osim_8b_v6_from_frozen_map():
+    # frozen map must reproduce the same numbers without any baseline files
+    _assert_golden(_score_v6(difficulty=um.load_difficulty()))
+    # and the frozen map must equal a fresh recompute from the baselines
+    assert um.compute_difficulty_map(EV_DIR)[0] == um.load_difficulty()
