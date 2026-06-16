@@ -23,36 +23,20 @@ ECE difficulty bins are **fixed to AgentArena's 31 published baselines**
 as the leaderboard. The bins are precomputed and **shipped frozen** in
 `tau_usi_difficulty.json` (a ~6 KB `{task_key: pooled_success}` map) — the only
 thing the 135 MB of baseline `eval_results` were needed for — so scoring needs
-neither those files nor a recompute. Re-freeze if the baselines change:
-
-```bash
-python -m agents.tau_usi.usi_metric --eval-results-dir data/tau_usi/eval_results
-```
-
-### Data setup (gitignored mirror)
-
-The frozen difficulty is in git, so the **only required** sync is the human
-annotations; surveys (for the Eval term) and baselines (for `--print-all` /
-`--difficulty baselines`) are optional. Mirror from the AgentArena box into
-`data/tau_usi/` (or set `$TAU_USI_DATA_DIR`):
-
-```bash
-rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/tau_bench_tasks_unified.json' data/tau_usi/  # required
-rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/survey_data/'  data/tau_usi/survey_data/      # optional: Eval term
-rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/eval_results/' data/tau_usi/eval_results/     # optional: leaderboard
-```
+neither those files nor a recompute.
 
 ### Run
 
 ```bash
-# Score a one-by-one eval into the USI table (+ writes <label>_aggregate_metrics.json)
-python -m agents.tau_usi.score_eval results/v6_task_results.json --label osim-8b-v6 --print-all
-# Optional: derive an Eval (survey-agreement) term from the eval's own surveys
-python -m agents.tau_usi.score_eval results/v6_task_results.json --label osim-8b-v6 --emit-survey-comparable
-```
+# Sync the human annotations (only hard requirement; survey_data/ is optional, for the Eval term)
+rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/tau_bench_tasks_unified.json' data/tau_usi/
 
-Regression tests (synthetic always run; golden test skips without the data
-mirror): `pytest agents/tau_usi/tests/test_usi_metric.py`.
+# Score a one-by-one eval into the USI table (+ writes <label>_aggregate_metrics.json)
+python -m agents.tau_usi.usi_metric score results/v6_task_results.json --label osim-8b-v6
+
+# Re-freeze the difficulty map when the baselines change (needs data/tau_usi/eval_results/)
+python -m agents.tau_usi.usi_metric freeze --eval-results-dir data/tau_usi/eval_results
+```
 
 ## Replication (2026-03-05)
 

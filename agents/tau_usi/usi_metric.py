@@ -26,6 +26,16 @@ Feature extraction is the single shared definition in
 ``agents.tau_usi.utils.extract_conversation_features`` — this module only does
 aggregation. Ported from AgentArena ``analyze_interaction.py``
 (md5 c195960d96ba6ceacad182601948a085); kept line-faithful so the numbers match.
+
+CLI::
+
+    # score a one-by-one eval into the USI table (default difficulty = shipped frozen map)
+    python -m agents.tau_usi.usi_metric score results/v6_task_results.json --label osim-8b-v6
+    # re-freeze the ECE difficulty map when the baselines change
+    python -m agents.tau_usi.usi_metric freeze --eval-results-dir data/tau_usi/eval_results
+
+Needs only ``data/tau_usi/tau_bench_tasks_unified.json`` (+ optional ``survey_data/``
+for the Eval term); the ECE difficulty bins ship frozen in ``tau_usi_difficulty.json``.
 """
 
 from __future__ import annotations
@@ -594,20 +604,141 @@ def compute_all_with_variance(batches, llm_files, survey_dir=None, difficulty_fi
     return results
 
 
-def _freeze_cli(argv=None):
-    """Recompute and write the frozen ECE difficulty map from baseline files."""
-    import argparse
-    ap = argparse.ArgumentParser(description="Freeze the tau-USI ECE difficulty map from baseline eval_results.")
-    ap.add_argument("--eval-results-dir", required=True, help="dir of baseline eval_results_*.json")
-    ap.add_argument("--out", default=str(FROZEN_DIFFICULTY_PATH), help=f"output JSON (default: {FROZEN_DIFFICULTY_PATH})")
-    a = ap.parse_args(argv)
-    difficulty, used = compute_difficulty_map(a.eval_results_dir)
+# ── CLI ──────────────────────────────────────────────────────────────────────
+# `score`  — aggregate OdysSim's one-by-one *_task_results.json into the USI table
+# `freeze` — recompute the shipped ECE difficulty map from baseline eval_results
+
+def _default_data_dir():
+    import os
+    env = os.getenv("TAU_USI_DATA_DIR")
+    return Path(env) if env else Path(__file__).resolve().parents[2] / "data" / "tau_usi"
+
+
+def task_results_to_eval_results(payload):
+    """Convert a ``*_task_results.json`` payload (``{"results": [...]}``) — or an
+    already-converted flat ``eval_results`` dict — into ``{instance_id: entry}``."""
+    if isinstance(payload, dict) and "results" not in payload:
+        if payload and all(isinstance(v, dict) and "conversation" in v for v in payload.values()):
+            return payload
+    records = payload["results"] if isinstance(payload, dict) else payload
+    out = {}
+    for r in records:
+        iid = r.get("instance_id") or f"{r['domain']}_{r['task_index']}"
+        out[iid] = {
+            "instance_id": iid, "agent_id": r.get("agent_id", "agent-origin"),
+            "conversation": r["conversation"], "survey": r.get("survey", {}) or {},
+            "reward": float(r.get("reward", 0) or 0), "keep": bool(r.get("keep", True)),
+        }
+    return out
+
+
+def _fmt_cell(pair, scale=1.0, dec=1):
+    if not pair or pair[0] is None:
+        return f"{'NA':>11s}"
+    return f" {pair[0] * scale:5.{dec}f}±{pair[1] * scale:<4.{dec}f}"
+
+
+def _print_table(results, focus=None):
+    hdr = "{:32s}" + " {:>11s}" * 7
+    print(hdr.format("Model", "D1", "D2", "D3", "D4", "Eval", "ECE", "USI"))
+    print("-" * 116)
+    human = [r for r in results if r["name"] == "Human (inter-ann.)"]
+    rest = sorted([r for r in results if r["name"] != "Human (inter-ann.)"],
+                  key=lambda r: -(r["usi"][0] if r["usi"] and r["usi"][0] is not None else -1))
+    for r in human + rest:
+        line = f"{r['name'][:32]:32s}"
+        for k in ("D1_conv", "D2_info", "D3_clarif", "D4_react"):
+            line += _fmt_cell(r[k])
+        line += _fmt_cell(r["eval_agree"])
+        line += _fmt_cell(r["ece"], scale=100.0, dec=2)  # ECE stored 0-1, shown x100
+        line += _fmt_cell(r["usi"], dec=2)
+        print(line + (" *" if focus and r["name"] == focus else ""))
+
+
+def _score_cli(args):
+    data_dir = Path(args.data_dir) if args.data_dir else _default_data_dir()
+    unified = data_dir / "tau_bench_tasks_unified.json"
+    ev_dir, survey_dir = data_dir / "eval_results", data_dir / "survey_data"
+    if not unified.exists():
+        raise SystemExit(f"missing {unified} (sync tau_bench_tasks_unified.json from the AgentArena box)")
+
+    in_path = Path(args.input)
+    label = args.label or in_path.stem.replace("_task_results", "").replace("eval_results_", "")
+    out_dir = Path(args.out_dir) if args.out_dir else in_path.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    eval_results = task_results_to_eval_results(json.loads(in_path.read_text()))
+    converted = out_dir / f"eval_results_{label}.json"
+    converted.write_text(json.dumps(eval_results, ensure_ascii=False))
+    print(f"[usi] {label}: {len(eval_results)} records from {in_path.name}")
+
+    baselines = resolve_baselines(ev_dir) if ev_dir.exists() else []
+    difficulty = diff_files = None
+    if args.difficulty == "frozen":
+        difficulty = load_difficulty(args.difficulty_json)
+        print(f"[usi] difficulty: frozen map ({len(difficulty)} tasks) — no baselines needed")
+    elif args.difficulty == "baselines":
+        if not baselines:
+            raise SystemExit(f"--difficulty baselines needs {ev_dir}/eval_results_*.json")
+        diff_files = baselines
+    # else 'self': self-pooled over llm_files
+
+    llm_files = ([*baselines, converted] if (args.print_all and baselines) else [converted])
+    survey_arg = survey_dir if survey_dir.exists() else None
+    batches = load_batches_from_unified(unified)
+    results = compute_all_with_variance(batches, llm_files, survey_arg,
+                                        difficulty_files=diff_files, difficulty=difficulty)
+    by_name = {r["name"]: r for r in results}
+    row = by_name.get(label)
+    print()
+    _print_table(results if args.print_all else [by_name["Human (inter-ann.)"], row], focus=label)
+    print()
+
+    keys = ["D1_conv", "D2_info", "D3_clarif", "D4_react", "eval_agree", "ece", "usi"]
+    metrics = {
+        "label": label, "difficulty_reference": args.difficulty,
+        "model": ({"name": label, **{k: row.get(k) for k in keys}} if row else None),
+        "human_inter_annotator": {"name": "Human (inter-ann.)",
+                                  **{k: by_name["Human (inter-ann.)"].get(k) for k in keys}},
+    }
+    mpath = out_dir / f"{label}_aggregate_metrics.json"
+    mpath.write_text(json.dumps(metrics, indent=2))
+    usi = row["usi"][0] if row and row["usi"] else None
+    print(f"[usi] USI={usi:.2f} -> {mpath.name}" if usi is not None else f"[usi] USI=NA -> {mpath.name}")
+
+
+def _freeze_cli(args):
+    difficulty, used = compute_difficulty_map(args.eval_results_dir)
     if len(used) != len(PUBLISHED_BASELINES):
-        print(f"WARNING: {len(used)}/{len(PUBLISHED_BASELINES)} baselines found; "
-              "freeze pools over only those present.")
-    dump_difficulty(difficulty, a.out, source="PUBLISHED_BASELINES", n_baselines=len(used))
-    print(f"froze {len(difficulty)} task difficulties from {len(used)} baselines -> {a.out}")
+        print(f"WARNING: {len(used)}/{len(PUBLISHED_BASELINES)} baselines found; pooling over those present.")
+    dump_difficulty(difficulty, args.out, source="PUBLISHED_BASELINES", n_baselines=len(used))
+    print(f"froze {len(difficulty)} task difficulties from {len(used)} baselines -> {args.out}")
+
+
+def _main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser(description="tau-USI scorer — matches AgentArena's compute_all_with_variance.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("score", help="aggregate a *_task_results.json into the USI table")
+    s.add_argument("input", help="OdysSim *_task_results.json (or an already-converted eval_results dict)")
+    s.add_argument("--data-dir", default=None, help="default <repo>/data/tau_usi or $TAU_USI_DATA_DIR")
+    s.add_argument("--label", default=None)
+    s.add_argument("--out-dir", default=None)
+    s.add_argument("--difficulty", choices=["frozen", "baselines", "self"], default="frozen",
+                   help="frozen (shipped map, no baselines — default) | baselines (recompute) | self (paper self-pool)")
+    s.add_argument("--difficulty-json", default=None)
+    s.add_argument("--print-all", action="store_true", help="print the full leaderboard (needs baseline eval_results)")
+    s.set_defaults(fn=_score_cli)
+
+    f = sub.add_parser("freeze", help="recompute the shipped ECE difficulty map from baselines")
+    f.add_argument("--eval-results-dir", required=True)
+    f.add_argument("--out", default=str(FROZEN_DIFFICULTY_PATH))
+    f.set_defaults(fn=_freeze_cli)
+
+    args = ap.parse_args(argv)
+    args.fn(args)
 
 
 if __name__ == "__main__":
-    _freeze_cli()
+    _main()
