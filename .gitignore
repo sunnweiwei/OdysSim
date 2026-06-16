@@ -14,6 +14,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 dataset/*
+# Local data mirror (tau_usi human annotations, baseline eval_results, surveys —
+# synced from the AgentArena box; large + gitignored, like AgentArena's data/).
+/data/
 tensorflow/my_graph/*
 .idea/
 # C extensions

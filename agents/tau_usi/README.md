@@ -1,5 +1,50 @@
 # Tau-USI
 
+## Scoring: USI that matches AgentArena
+
+USI is a **distribution-level** metric, so evaluation has two stages and only the
+first is per-task:
+
+1. **Rollout (one task at a time, preserved):** `agent.py::agent_loop` simulates
+   the user for a single TauBench task and the harness writes a
+   `*_task_results.json` (`{"results": [{instance_id, conversation, survey,
+   reward, ...}, ...]}`). The RL reward in `reward.py` (`compute_distributional_
+   reward`, an EMA moment-matching proxy) is unrelated to the USI score below.
+2. **Scoring (aggregation):** `usi_metric.py` is a faithful, numpy-only port of
+   AgentArena's `annotation_analysis/analyze_interaction.compute_all_with_variance`
+   — Dice-Sørensen D1–D4 over pooled feature rows vs the 3 human batches,
+   difficulty-binned ECE, survey-based Eval, and `USI = mean(D1..D4, [Eval,]
+   (1−ECE)·100)`. Feature extraction is the **single shared definition** in
+   `utils.extract_conversation_features`. Verified **bit-identical** (max abs
+   diff `0.0`) to AgentArena across 33 models × 7 metrics.
+
+ECE difficulty bins are **fixed to AgentArena's 31 published baselines**
+(`usi_metric.PUBLISHED_BASELINES`, `difficulty_files=baselines`) so a new model is
+scored on the same yardstick as the leaderboard.
+
+### Data setup (gitignored mirror)
+
+The human annotations + baselines live on the AgentArena box (not in git). Mirror
+them into `data/tau_usi/` (or set `$TAU_USI_DATA_DIR`):
+
+```bash
+rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/tau_bench_tasks_unified.json' data/tau_usi/
+rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/survey_data/'  data/tau_usi/survey_data/
+rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/eval_results/' data/tau_usi/eval_results/
+```
+
+### Run
+
+```bash
+# Score a one-by-one eval into the USI table (+ writes <label>_aggregate_metrics.json)
+python -m agents.tau_usi.score_eval results/v6_task_results.json --label osim-8b-v6 --print-all
+# Optional: derive an Eval (survey-agreement) term from the eval's own surveys
+python -m agents.tau_usi.score_eval results/v6_task_results.json --label osim-8b-v6 --emit-survey-comparable
+```
+
+Regression tests (synthetic always run; golden test skips without the data
+mirror): `pytest agents/tau_usi/tests/test_usi_metric.py`.
+
 ## Replication (2026-03-05)
 
 Run setup (concise): `tau_usi`, agent=`gpt-5.2`, domains=`retail,airline`, tasks=`165`, workers=`50`, timeout=`300s`, checkpoint-resume enabled.
