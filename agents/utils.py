@@ -12,9 +12,12 @@ from omegaconf import DictConfig
 from transformers import PreTrainedTokenizer, AutoTokenizer
 import asyncio
 import json
-import torch
 from pydantic import BaseModel
-from verl.experimental.agent_loop.agent_loop import AgentLoopMetrics, AgentLoopOutput
+# NOTE: verl (AgentLoopMetrics/AgentLoopOutput) is imported lazily inside
+# AgentContext.get_agent_output — the ONLY place it is used. This keeps the
+# rollout importable for evaluating external (non-self-hosted) API user-sim
+# models without pulling in verl/torch. `import torch` was previously here but
+# unused; removed so eval needs neither.
 from typing import Any, Optional
 import asyncio
 from openai import AsyncOpenAI
@@ -660,6 +663,8 @@ class AgentContext:
             extra_fields["teacher_prompt_ids"] = self._apply_chat_template(
                 teacher_prompt, add_generation_prompt=True, tokenize=True
             )
+
+        from verl.experimental.agent_loop.agent_loop import AgentLoopMetrics, AgentLoopOutput
 
         out = await self.get_data()
         out = AgentLoopOutput(
