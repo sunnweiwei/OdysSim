@@ -23,6 +23,31 @@ from agents.tau_usi.utils import extract_conversation_features, FIELD_ORDINAL
 from agents.tau_usi.reward import FeatureStatsBuffer, compute_distributional_reward
 from agents.utils import Agent, call_openai, remove_think, process_post_chat, _get_openai_client, truncate_text
 
+# Agent (the assistant the user-sim talks to) — matched to AgentArena's fixed
+# tau eval agent in agent_service/tau_agent.py so USI numbers are comparable.
+AGENT_MODEL = os.getenv("TAU_USI_AGENT_MODEL", "gpt-5.2")
+AGENT_REASONING_EFFORT = os.getenv("TAU_USI_AGENT_REASONING_EFFORT", "low")
+
+
+async def _agent_respond(chat):
+    """Generate the agent's turn, matched to AgentArena ``agent_service/tau_agent.py``:
+    OpenAI **Responses API**, gpt-5.2, reasoning effort 'low'. The assistant
+    message is the response *text* only (reasoning summary excluded from the
+    transcript), parsed the same way; tool-calling then uses the shared
+    ``extract_fn_call`` + ``tau_env.step``. Held constant across user-sim models.
+    """
+    client = _get_openai_client()
+    resp = await client.responses.create(
+        model=AGENT_MODEL,
+        input=chat,
+        reasoning={"summary": "detailed", "effort": AGENT_REASONING_EFFORT},
+    )
+    answer = ""
+    for item in resp.output:
+        if getattr(item, "type", None) == "message" and getattr(item, "content", None):
+            answer += ("\n\n" if answer else "") + item.content[0].text
+    return answer
+
 
 class TauUSIEnv(BaseEnv):
     """Tau environment client with automatic recovery via conversation replay."""
@@ -156,9 +181,21 @@ async def parse_survey_response(survey_response):
     return _structure_survey_answers(parsed or {})
 
 
-async def agent_loop(data, context):
-    """
-    Run one live TauBench task and return per-task features for USI aggregation.
+async def rollout_one_task(data, context):
+    """Run ONE live TauBench task with the model as user simulator.
+
+    This is the pure rollout: it returns the per-task evaluation record and has
+    NO dependency on verl or the RL output type. It can therefore be driven
+    standalone (see ``run_eval.py``) to evaluate external/API user-sim models
+    without verl/torch, OR wrapped by :func:`agent_loop` for the verl RL path.
+
+    Needs only ``context.llm_client`` (the user-sim), ``context.tokenizer``,
+    ``context.config`` and a reachable runtime service (``RUNTIME_SERVICE_URL``).
+
+    Returns ``(record, user_agent)``: ``record`` is the eval row
+    (``instance_id, conversation, chat, survey, reward, features,
+    termination_reason``); ``user_agent`` is returned so the verl path can build
+    token-level outputs — standalone eval ignores it.
     """
     task_index = int(data["task_index"])
     env_name = str(data["env_name"])
@@ -167,16 +204,18 @@ async def agent_loop(data, context):
     tau_env = TauUSIEnv(env_name=env_name, task_index=task_index)
     try:
         await tau_env.initialize()
-        initialized = True
     except RuntimeServiceError as error:
         raise RuntimeError(
             "Tau runtime service unavailable during initialization."
         ) from error
-    except:
-        raise
 
+    # AgentArena eval_tau opens with the agent greeting; the user-sim replies first.
+    GREETING = "Hi! How can I help you today?"
     system_prompt = tau_env.get_system_prompt()
-    chat = [{"role": "system", "content": system_prompt}]
+    chat = [
+        {"role": "system", "content": system_prompt},
+        {"role": "assistant", "content": GREETING},
+    ]
     user_system_prompt = f"""{tau_env.meta_info['instruction'] if tau_env.meta_info else ""}
 
 Rules:
@@ -189,49 +228,58 @@ Rules:
 - Try to make the conversation as natural as possible, and stick to the personalities in the instruction."""
     user_history: list[dict[str, str]] = [
         {"role": "system", "content": user_system_prompt},
-        {"role": "user", "content": "Hi! How can I help you today?"},
+        {"role": "user", "content": GREETING},
     ]
     user_agent = Agent(context.llm_client, user_history, context.tokenizer, context.config, prompt_turn=2)
 
-    # Reference-style opening: greeting -> user simulator speaks first.
+    # User simulator replies to the greeting first.
     response = await user_agent.step()
     response = remove_think(response, remove_unclosed=True)
-    first_user_response = response
+    chat.append({"role": "user", "content": response})
 
-    chat.append({"role": "user", "content": first_user_response})
+    # Turn structure mirrors AgentArena eval_tau (<=80 user turns) + tau_agent.py
+    # (each agent turn does <=64 tool-call rounds before yielding to the user).
+    termination_reason = "max_user_turns"
+    content = ""
+    for _user_turn in range(80):
+        for _ in range(64):
+            content = await _agent_respond(chat)
+            chat.append({"role": "assistant", "content": content})
+            fn_call = extract_fn_call(content)
+            observation = None
 
-    for _ in range(50):
-        content = await call_openai(chat),
-        chat.append({"role": "assistant", "content": content})
-        fn_call = extract_fn_call(content)
-        observation = None
+            if isinstance(fn_call, dict) and "error" in fn_call:
+                # Wrong tool-call format: tau_agent.py appends the hint as 'user'
+                # and lets the agent retry.
+                chat.append({"role": "user", "content": fn_call["error"]})
+                continue
 
-        if isinstance(fn_call, dict) and "error" in fn_call:
-            observation = fn_call["error"]
+            if isinstance(fn_call, list) and fn_call:
+                try:
+                    chunks = []
+                    for call_item in fn_call:
+                        chunk = await tau_env.step(call_item, conversation=chat)
+                        chunks.append(chunk)
+                    observation = "\n\n".join(chunks)
+                except Exception as error:
+                    observation = f"Error executing tool: {error}"
 
-        if isinstance(fn_call, list) and fn_call:
-            try:
-                chunks = []
-                for call_item in fn_call:
-                    chunk = await tau_env.step(call_item, conversation=chat)
-                    chunks.append(chunk)
-                observation = "\n\n".join(chunks)
-            except Exception as error:
-                observation = f"Error executing tool: {error}"
+            if observation is None:
+                break  # no tool call -> user-facing message; hand off to user-sim
+            # Tool observation: tau_agent.py appends as role 'system'.
+            chat.append({"role": "system", "content": observation})
 
-        if observation is None:
-            user_agent.append({"role": "user", "content": content})
-            user_response = await user_agent.step()
-            if not user_response:
-                break
-            user_response = remove_think(user_response, remove_unclosed=True)
-            if "###STOP###" in user_response:
-                break
-            observation = user_response
-            chat.append({"role": "user", "content": observation})
-            continue
-
-        chat.append({"role": "developer", "content": observation})
+        # User simulator responds to the agent's message.
+        user_agent.append({"role": "user", "content": content})
+        user_response = await user_agent.step()
+        if not user_response:
+            termination_reason = "empty_user_response"
+            break
+        user_response = remove_think(user_response, remove_unclosed=True)
+        if "###STOP###" in user_response:
+            termination_reason = "stop"
+            break
+        chat.append({"role": "user", "content": user_response})
 
     questions_block_lines = []
     for field, options_map in FIELD_ORDINAL.items():
@@ -253,20 +301,47 @@ Do not include any text outside JSON."""
     survey = await parse_survey_response(response)
 
     model_reward = 0.0
-    if initialized:
-        try:
-            model_reward = await asyncio.to_thread(tau_env.get_reward)
-        except Exception:
-            model_reward = 0.0
+    try:
+        # get_reward is async; awaiting asyncio.to_thread(get_reward) returns the
+        # *coroutine* (to_thread is for sync fns) -> float() on it blew up. Await directly.
+        model_reward = await tau_env.get_reward()
+    except Exception:
+        model_reward = 0.0
 
     features = extract_conversation_features(chat[1:], source="llm") or {}
+    # Clean transcript for USI scoring: agent (assistant) + user-sim (user) turns
+    # only — drop the system prompt and tool/developer observations.
+    conversation = [m for m in chat[1:] if m.get("role") in ("user", "assistant")]
+
+    record = {
+        "instance_id": instance_id,
+        "env_name": env_name,
+        "domain": env_name,
+        "task_index": task_index,
+        "conversation": conversation,
+        "chat": chat,
+        "survey": survey,
+        "reward": float(model_reward),
+        "features": features,
+        "termination_reason": termination_reason,
+    }
+    return record, user_agent
+
+
+async def agent_loop(data, context):
+    """verl RL path: run one task, compute the distributional proxy reward, and
+    return the verl ``AgentLoopOutput``. Thin wrapper over :func:`rollout_one_task`
+    (the rollout itself needs no verl)."""
+    record, user_agent = await rollout_one_task(data, context)
+    features = record["features"]
+    survey = record["survey"]
+    model_reward = record["reward"]
 
     # --- Distributional reward (D1–D4 moment matching) ---
     # Requires context["feature_stats_buffer"] (FeatureStatsBuffer) and
     # data["human_feature_targets"] (dict of precomputed human baseline means
     # in the same units as extract_conversation_features output, i.e. rates in
     # [0,1], NOT the ×100 scaled values from build_row).
-    # Optional: data["distributional_reward_mode"] = "mse" | "kl" (default "mse")
     dist_reward: dict[str, float] = {
         "D1_conv": 0.0, "D2_info": 0.0, "D3_clarif": 0.0, "D4_react": 0.0,
         "ece": 0.0, "eval_agreement": 0.0, "total": 0.0,
