@@ -1,5 +1,43 @@
 # Tau-USI
 
+## Scoring: USI that matches AgentArena
+
+USI is a **distribution-level** metric, so evaluation has two stages and only the
+first is per-task:
+
+1. **Rollout (one task at a time, preserved):** `agent.py::agent_loop` simulates
+   the user for a single TauBench task and the harness writes a
+   `*_task_results.json` (`{"results": [{instance_id, conversation, survey,
+   reward, ...}, ...]}`). The RL reward in `reward.py` (`compute_distributional_
+   reward`, an EMA moment-matching proxy) is unrelated to the USI score below.
+2. **Scoring (aggregation):** `usi_metric.py` is a faithful, numpy-only port of
+   AgentArena's `annotation_analysis/analyze_interaction.compute_all_with_variance`
+   — Dice-Sørensen D1–D4 over pooled feature rows vs the 3 human batches,
+   difficulty-binned ECE, survey-based Eval, and `USI = mean(D1..D4, [Eval,]
+   (1−ECE)·100)`. Feature extraction is the **single shared definition** in
+   `utils.extract_conversation_features`. Verified **bit-identical** (max abs
+   diff `0.0`) to AgentArena across 33 models × 7 metrics.
+
+ECE difficulty bins are **fixed to AgentArena's 31 published baselines**
+(`usi_metric.PUBLISHED_BASELINES`) so a new model is scored on the same yardstick
+as the leaderboard. The bins are precomputed and **shipped frozen** in
+`tau_usi_difficulty.json` (a ~6 KB `{task_key: pooled_success}` map) — the only
+thing the 135 MB of baseline `eval_results` were needed for — so scoring needs
+neither those files nor a recompute.
+
+### Run
+
+```bash
+# Sync the human annotations (only hard requirement; survey_data/ is optional, for the Eval term)
+rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/tau_bench_tasks_unified.json' data/tau_usi/
+
+# Score a one-by-one eval into the USI table (+ writes <label>_aggregate_metrics.json)
+python -m agents.tau_usi.usi_metric score results/v6_task_results.json --label osim-8b-v6
+
+# Re-freeze the difficulty map when the baselines change (needs data/tau_usi/eval_results/)
+python -m agents.tau_usi.usi_metric freeze --eval-results-dir data/tau_usi/eval_results
+```
+
 ## Replication (2026-03-05)
 
 Run setup (concise): `tau_usi`, agent=`gpt-5.2`, domains=`retail,airline`, tasks=`165`, workers=`50`, timeout=`300s`, checkpoint-resume enabled.
