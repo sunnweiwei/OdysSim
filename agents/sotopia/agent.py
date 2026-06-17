@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Sotopia benchmark agent for Harmony evaluation.
 
@@ -8,15 +22,26 @@ Based on: https://arxiv.org/abs/2310.11667
 """
 
 import asyncio
+import copy
 import json
+import logging
 import re
 import uuid
-import logging
-import json
-import copy
+
 from pydantic import BaseModel
-from agents.utils import Agent, call_openai, call_openai_parse, remove_think, process_post_chat, truncate_text, editlens_score, get_judge_model, get_judge_reasoning
+
 from agents.sotopia.hint import generate_hint, get_teacher_character_prompt
+from agents.utils import (
+    Agent,
+    call_openai,
+    call_openai_parse,
+    editlens_score,
+    get_judge_model,
+    get_judge_reasoning,
+    process_post_chat,
+    remove_think,
+    truncate_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +49,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Pydantic schema for structured LLM judge output
 # ---------------------------------------------------------------------------
+
 
 class HackDetection(BaseModel):
     risk_level: str  # "low", "medium", "high"
@@ -57,9 +83,10 @@ EvalResultSingle = AgentEval
 # JSON parsing utilities (adapted from coser_agent.py)
 # ---------------------------------------------------------------------------
 
+
 def _parse_json_inner(text: str) -> dict | None:
     """Try to parse JSON from text using json.loads then raw_decode fallback."""
-    text = re.sub(r'"([^"\\]*(\\.[^"\\]*)*)"', lambda m: m.group().replace('\n', r'\\n'), text)
+    text = re.sub(r'"([^"\\]*(\\.[^"\\]*)*)"', lambda m: m.group().replace("\n", r"\\n"), text)
     try:
         return json.loads(text)
     except Exception:
@@ -92,7 +119,7 @@ async def extract_json_from_text(text: str) -> dict | None:
         f"corrected JSON string. The JSON string to be corrected is:\n{text}"
     )
     try:
-        fixed = await call_openai([{"role": "user", "content": fix_prompt}], reasoning_effort='minimal')
+        fixed = await call_openai([{"role": "user", "content": fix_prompt}], reasoning_effort="minimal")
         if fixed:
             return _parse_json_inner(fixed)
     except Exception as e:
@@ -103,6 +130,7 @@ async def extract_json_from_text(text: str) -> dict | None:
 # ---------------------------------------------------------------------------
 # LLM call helpers (adapted from coser_agent.py)
 # ---------------------------------------------------------------------------
+
 
 async def llm_call(client, model, messages, max_tokens=None, temperature=None, response_format=None):
     """Make an async LLM call using the OpenAI client."""
@@ -134,6 +162,7 @@ async def llm_call_with_retry(client, model, messages, max_tokens=None, max_retr
 # Simple agent class (adapted from coser_agent.py)
 # ---------------------------------------------------------------------------
 
+
 class SimpleAgent:
     """Lightweight agent that manages conversation history and LLM calls."""
 
@@ -142,16 +171,16 @@ class SimpleAgent:
 
     async def step(self):
         """Generate a response."""
-        response = await call_openai(self.messages, model='gpt-5-nano', reasoning_effort='minimal')
+        response = await call_openai(self.messages, model="gpt-5-nano", reasoning_effort="minimal")
         if not response:
-            response = await call_openai(self.messages, model='gpt-5-nano', reasoning_effort='minimal')
+            response = await call_openai(self.messages, model="gpt-5-nano", reasoning_effort="minimal")
         response = truncate_text(response, 2048)
-        self.append({'role': 'assistant', 'content': response})
+        self.append({"role": "assistant", "content": response})
         return response or ""
 
     def append(self, turn):
         """Append a message to history, merging consecutive same-role messages."""
-        role, message = turn['role'], turn['content']
+        role, message = turn["role"], turn["content"]
         if message:
             if self.messages and self.messages[-1]["role"] == role:
                 self.messages[-1]["content"] += "\n\n" + message
@@ -209,12 +238,12 @@ def action_to_natural_language(name: str, action: dict) -> str:
 
 
 def get_character_prompt(
-        agent_name: str,
-        background: str,
-        scenario: str,
-        goal: str,
-        other_name: str,
-        relationship: str,
+    agent_name: str,
+    background: str,
+    scenario: str,
+    goal: str,
+    other_name: str,
+    relationship: str,
 ) -> str:
     """Build character system prompt adapted from sotopia's agenerate_action template."""
 
@@ -354,6 +383,7 @@ DIMENSION_WEIGHTS = {
     "goal": 2.0,
 }
 
+
 def normalize_score(score: float, dim: str) -> float:
     """Normalize a dimension score to [0, 1]."""
     lo, hi = DIMENSION_RANGES[dim]
@@ -361,15 +391,15 @@ def normalize_score(score: float, dim: str) -> float:
 
 
 def _build_eval_prompt_single(
-        conversation_history: str,
-        scenario: str,
-        actor_name: str,
-        actor_goal: str,
-        actor_background: str,
-        partner_name: str,
-        partner_goal: str,
-        partner_background: str,
-        relationship: str,
+    conversation_history: str,
+    scenario: str,
+    actor_name: str,
+    actor_goal: str,
+    actor_background: str,
+    partner_name: str,
+    partner_goal: str,
+    partner_background: str,
+    relationship: str,
 ) -> str:
     """Build an evaluation prompt that scores only the actor agent by name."""
     dimension_instructions = []
@@ -409,10 +439,10 @@ Conversation history:
 
 
 async def hack_judge(
-        conversation_log: list,
-        actor_name: str,
-        actor_goal: str,
-        scenario: str,
+    conversation_log: list,
+    actor_name: str,
+    actor_goal: str,
+    scenario: str,
 ) -> HackDetection:
     """Detect whether the actor's turns in the conversation are reward-hacking.
 
@@ -465,8 +495,8 @@ Output JSON: {{"risk_level": "low"|"medium"|"high", "reason": "<one sentence>"}}
     result = await call_openai_parse(
         [{"role": "user", "content": prompt}],
         HackDetection,
-        model=get_judge_model('gpt-5.4-mini'),
-        reasoning={"effort": get_judge_reasoning("none")}
+        model=get_judge_model("gpt-5.4-mini"),
+        reasoning={"effort": get_judge_reasoning("none")},
     )
     if result is None:
         return HackDetection(risk_level="low", reason="judge unavailable")
@@ -474,17 +504,17 @@ Output JSON: {{"risk_level": "low"|"medium"|"high", "reason": "<one sentence>"}}
 
 
 async def evaluate_episode_single(
-        conversation_log: list,
-        scenario: str,
-        actor_name: str,
-        actor_background: str,
-        actor_goal: str,
-        partner_name: str,
-        partner_background: str = "",
-        partner_goal: str = "",
-        relationship: str = "",
-        structured_output: bool = False,
-        use_54=False
+    conversation_log: list,
+    scenario: str,
+    actor_name: str,
+    actor_background: str,
+    actor_goal: str,
+    partner_name: str,
+    partner_background: str = "",
+    partner_goal: str = "",
+    relationship: str = "",
+    structured_output: bool = False,
+    use_54=False,
 ) -> dict:
     """LLM judge on 7 dimensions for the actor only. Normalizes scores to [0,1]."""
     filtered_log = [entry for entry in conversation_log if entry["action_type"] != "none"]
@@ -510,19 +540,24 @@ async def evaluate_episode_single(
     max_retries = 3
     try:
         async with asyncio.timeout(120):
-            model_name = get_judge_model('gpt-5-nano')
+            model_name = get_judge_model("gpt-5-nano")
             if structured_output:
-                parsed = await call_openai_parse(judge_messages, EvalResultSingle,
-                                                 model=model_name,
-                                                 max_retries=max_retries,
-                                                 reasoning={"effort": get_judge_reasoning("low")})
+                parsed = await call_openai_parse(
+                    judge_messages,
+                    EvalResultSingle,
+                    model=model_name,
+                    max_retries=max_retries,
+                    reasoning={"effort": get_judge_reasoning("low")},
+                )
             else:
                 for attempt in range(max_retries):
                     try:
-                        response = await call_openai(judge_messages,
-                                                     model=model_name,
-                                                     reasoning_effort=get_judge_reasoning('low'),
-                                                     response_format={"type": "json_object"})
+                        response = await call_openai(
+                            judge_messages,
+                            model=model_name,
+                            reasoning_effort=get_judge_reasoning("low"),
+                            response_format={"type": "json_object"},
+                        )
                         if response:
                             parsed = await extract_json_from_text(response)
                             if isinstance(parsed, dict) and "believability" in parsed:
@@ -545,7 +580,7 @@ async def evaluate_episode_single(
         lo, hi = DIMENSION_RANGES[dim]
         data = parsed.get(dim, {})
         raw = data.get("score", (lo + hi) // 2) if isinstance(data, dict) else (lo + hi) // 2
-        raw = max(lo, min(hi, int(raw) if isinstance(raw, (int, float)) else (lo + hi) // 2))
+        raw = max(lo, min(hi, int(raw) if isinstance(raw, (int, float)) else (lo + hi) // 2))  # noqa: UP038
         actor_scores[dim] = {"raw": raw, "normalized": normalize_score(raw, dim)}
 
     # if actor_scores['goal'] < 0.6:
@@ -563,8 +598,8 @@ async def evaluate_episode_single(
 # Timing helper
 # ---------------------------------------------------------------------------
 
-import time as _time
-from contextlib import contextmanager
+import time as _time  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
 
 
 @contextmanager
@@ -584,6 +619,7 @@ def timer(result: dict, key: str, accumulate: bool = False):
 # agent_loop: Harmony interface
 # ---------------------------------------------------------------------------
 
+
 async def agent_loop(data, context):
     """
     Sotopia: Simulate and evaluate a two-agent social interaction.
@@ -592,7 +628,7 @@ async def agent_loop(data, context):
     a fixed partner model plays the other.  ``eval_position`` ("agent1" or
     "agent2") controls which side the evaluate model takes.
     """
-    row = data['extra_info']
+    row = data["extra_info"]
     agent1_name = row["agent1_name"]
     agent2_name = row["agent2_name"]
     agent1_background = row.get("agent1_background", "")
@@ -601,11 +637,13 @@ async def agent_loop(data, context):
     agent2_goal = row.get("agent2_goal", "")
     relationship = row.get("relationship", "")
     # Replace Agent1/Agent2 placeholders in scenario with actual names
-    scenario = (row["scenario"]
-                .replace("Agent1", agent1_name)
-                .replace("Agent2", agent2_name)
-                .replace("agent1", agent1_name)
-                .replace("agent2", agent2_name))
+    scenario = (
+        row["scenario"]
+        .replace("Agent1", agent1_name)
+        .replace("Agent2", agent2_name)
+        .replace("agent1", agent1_name)
+        .replace("agent2", agent2_name)
+    )
     # eval_position controls which character the actor model plays
     eval_position = row.get("eval_position", "agent1")
 
@@ -621,18 +659,29 @@ async def agent_loop(data, context):
     _t = {}  # timing dict
 
     # Phase 1: Simulation
-    actor_chat = [{'role': 'system',
-                   'content': get_character_prompt(actor_name, actor_background, scenario, actor_goal, partner_name,
-                                                   relationship)},
-                  {'role': 'user', 'content': '=== Conversation Start ==='}]
+    actor_chat = [
+        {
+            "role": "system",
+            "content": get_character_prompt(
+                actor_name, actor_background, scenario, actor_goal, partner_name, relationship
+            ),
+        },
+        {"role": "user", "content": "=== Conversation Start ==="},
+    ]
     # _reserve = 4096 if getattr(context.config.algorithm, 'use_opd', False) else 0
     _reserve = 0
-    actor_agent = Agent(context.llm_client, actor_chat, context.tokenizer, context.config, prompt_turn=2,
-                        reserve_length=_reserve)
-    partner_chat = [{'role': 'system',
-                     'content': get_character_prompt(partner_name, partner_background, scenario, partner_goal,
-                                                     actor_name, relationship)},
-                    {'role': 'user', 'content': '=== Conversation Start ==='}]
+    actor_agent = Agent(
+        context.llm_client, actor_chat, context.tokenizer, context.config, prompt_turn=2, reserve_length=_reserve
+    )
+    partner_chat = [
+        {
+            "role": "system",
+            "content": get_character_prompt(
+                partner_name, partner_background, scenario, partner_goal, actor_name, relationship
+            ),
+        },
+        {"role": "user", "content": "=== Conversation Start ==="},
+    ]
     partner_agent = SimpleAgent(partner_chat)
 
     conversation_log = []
@@ -657,15 +706,17 @@ async def agent_loop(data, context):
 
             action = parse_action(response)
             action_nl = action_to_natural_language(current_name, action)
-            conversation_log.append({
-                "turn": turn + 1,
-                "agent": current_name,
-                "action_type": action["action_type"],
-                "argument": action["argument"],
-                "natural_language": action_nl,
-            })
+            conversation_log.append(
+                {
+                    "turn": turn + 1,
+                    "agent": current_name,
+                    "action_type": action["action_type"],
+                    "argument": action["argument"],
+                    "natural_language": action_nl,
+                }
+            )
 
-            other_agent.append({'role': "user", 'content': action_nl})
+            other_agent.append({"role": "user", "content": action_nl})
 
             if action["action_type"] == "leave" and turn >= 5:
                 break
@@ -682,7 +733,8 @@ async def agent_loop(data, context):
     with timer(_t, "sotopia/eval_time"):
         eval_result, hack_result = await asyncio.gather(
             evaluate_episode_single(
-                conversation_log, scenario,
+                conversation_log,
+                scenario,
                 actor_name=actor_name,
                 actor_background=actor_background,
                 actor_goal=actor_goal,
@@ -727,16 +779,19 @@ async def agent_loop(data, context):
     eval_avg = eval_result["actor_avg"]
     actor_scores = eval_result["actor_scores"]
 
-    extra_info = {"sotopia/reward": reward, "sotopia/eval_avg": eval_avg,
-                  "sotopia/hack_low": int(hack_result.risk_level == "low"),
-                  "sotopia/hack_medium": int(hack_result.risk_level == "medium"),
-                  "sotopia/hack_high": int(hack_result.risk_level == "high"),
-                  "sotopia/editlens_score": 0 if ai_score is None else ai_score,
-                  "sotopia/editlens_medium": 0 if ai_score is None else int(0.33 < ai_score <= 0.67),
-                  "sotopia/editlens_high": 0 if ai_score is None else int(ai_score > 0.67),
-                  "sotopia/editlens_failed": int(editlens_failed),
-                  "all/score": 0.1 * eval_result["actor_avg"],
-                  "all/score_v1": 0.1 * eval_result["actor_avg"]}
+    extra_info = {
+        "sotopia/reward": reward,
+        "sotopia/eval_avg": eval_avg,
+        "sotopia/hack_low": int(hack_result.risk_level == "low"),
+        "sotopia/hack_medium": int(hack_result.risk_level == "medium"),
+        "sotopia/hack_high": int(hack_result.risk_level == "high"),
+        "sotopia/editlens_score": 0 if ai_score is None else ai_score,
+        "sotopia/editlens_medium": 0 if ai_score is None else int(0.33 < ai_score <= 0.67),
+        "sotopia/editlens_high": 0 if ai_score is None else int(ai_score > 0.67),
+        "sotopia/editlens_failed": int(editlens_failed),
+        "all/score": 0.1 * eval_result["actor_avg"],
+        "all/score_v1": 0.1 * eval_result["actor_avg"],
+    }
     extra_info.update(_t)
     for dim, s in actor_scores.items():
         extra_info[f"sotopia/{dim}"] = s["raw"]
@@ -744,7 +799,14 @@ async def agent_loop(data, context):
     # ===========================================================================
     teacher_prompt = None
     hint = None
-    if (getattr(context.config.algorithm, 'use_opd', False) or getattr(context.config.algorithm, 'agent_version', None) == 'copy') and eval_result["actor_avg"] <= 4 and hack_result.risk_level == 'low':
+    if (
+        (
+            getattr(context.config.algorithm, "use_opd", False)
+            or getattr(context.config.algorithm, "agent_version", None) == "copy"
+        )
+        and eval_result["actor_avg"] <= 4
+        and hack_result.risk_level == "low"
+    ):
         with timer(_t, "sotopia/hint_time"):
             hint, judge_agent = await generate_hint(
                 conversation_log=conversation_log,
@@ -770,15 +832,15 @@ async def agent_loop(data, context):
             hint=hint,
         )
         teacher_prompt = [
-            {'role': 'system', 'content': teacher_system},
-            {'role': 'user', 'content': '=== Conversation Start ==='},
+            {"role": "system", "content": teacher_system},
+            {"role": "user", "content": "=== Conversation Start ==="},
         ]
         if not hint:
             extra_info["sotopia/hint_error"] = 1
         else:
             extra_info["sotopia/hint_error"] = 0
 
-        eval_result['raw_eval']['hint'] = hint
+        eval_result["raw_eval"]["hint"] = hint
         extra_info["sotopia/hint_time"] = _t["sotopia/hint_time"]
     # ===========================================================================
 
@@ -792,25 +854,27 @@ async def agent_loop(data, context):
     extra_info["sotopia/postprocess_time"] = _t["sotopia/postprocess_time"]
     extra_info["sotopia/total_time"] = sum(_t.values())
 
-    if getattr(context.config.algorithm, 'agent_version', None) == 'copy' and context.is_train and hint:
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train and hint:
         with timer(_t, "sotopia/hint_agent_time"):
             from agents.sotopia.hint_agent import agent_loop as hint_agent_loop
-            data['extra_info']['hint'] = hint
-            data['extra_info']['rollout'] = extra_info
+
+            data["extra_info"]["hint"] = hint
+            data["extra_info"]["rollout"] = extra_info
             hint_agent_output = await hint_agent_loop(data, context)
             copy_agent_output = copy.deepcopy(hint_agent_output)
             copy_agent_output.prompt_ids = copy.deepcopy(output.prompt_ids)
             copy_agent_output.extra_fields["gen_uid"] = str(uuid.uuid4())  # separate seq
-            hint_agent_output.extra_fields["agent_role"] = 'hint_agent'  # separate group
+            hint_agent_output.extra_fields["agent_role"] = "hint_agent"  # separate group
             output = [output, copy_agent_output, hint_agent_output]
 
-    await process_post_chat(data, context, actor_agent.chat, output, extra=eval_result['raw_eval'])
+    await process_post_chat(data, context, actor_agent.chat, output, extra=eval_result["raw_eval"])
     return output
 
 
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
+
 
 def compute_sotopia_aggregates(results: list) -> dict:
     """Compute per-dimension and overall averages for the evaluate model only.

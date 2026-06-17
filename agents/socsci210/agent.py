@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 SocSci210 agent for Harmony evaluation.
 
@@ -18,9 +32,8 @@ clamped to [0, 1]. Binary outcomes collapse to exact match (0.0 / 1.0).
 
 from __future__ import annotations
 
-import copy
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 from agents.utils import Agent, process_post_chat, remove_think
 
@@ -35,7 +48,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def _build_prompt_from_row(row: Dict[str, Any]) -> str:
+def _build_prompt_from_row(row: dict[str, Any]) -> str:
     """Return the pre-formatted user prompt stored on the normalized row.
 
     `prompt_text` is populated by `prepare_dataset._process_socsci210_split` and
@@ -92,7 +105,7 @@ def _compute_reward(
     r_min: float,
     r_max: float,
     response_type: str,
-) -> Tuple[float, bool]:
+) -> tuple[float, bool]:
     """Reward for a single prediction.
 
     - ordinal: normalized accuracy 1 - |pred - gold| / (r_max - r_min)
@@ -139,7 +152,7 @@ async def agent_loop(data: dict, context):
     try:
         gold = float(row["response"])
     except (KeyError, TypeError, ValueError):
-        raise ValueError("SocSci210 row is missing a numeric 'response' field.")
+        raise ValueError("SocSci210 row is missing a numeric 'response' field.")  # noqa: B904
 
     prompt = _build_prompt_from_row(row)
     if not prompt:

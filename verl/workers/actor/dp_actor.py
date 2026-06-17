@@ -338,9 +338,7 @@ class DataParallelPPOActor(BasePPOActor):
 
             # expand gather_ids to full seqlen: [bsz, seqlen, k]
             prompt_length = seqlen - response_length
-            gather_ids_full = torch.zeros(
-                batch_size, seqlen, k, dtype=torch.int32, device=gather_ids.device
-            )
+            gather_ids_full = torch.zeros(batch_size, seqlen, k, dtype=torch.int32, device=gather_ids.device)
             gather_ids_full[:, prompt_length:, :] = gather_ids
 
             if position_ids.dim() == 3:
@@ -349,9 +347,7 @@ class DataParallelPPOActor(BasePPOActor):
             extra_args = {"temperature": temperature, "return_dict": True}
 
             if self.use_remove_padding:
-                input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
-                    input_ids.unsqueeze(-1), attention_mask
-                )
+                input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)
                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
 
                 if position_ids.dim() == 3:
@@ -366,29 +362,33 @@ class DataParallelPPOActor(BasePPOActor):
                     ).transpose(0, 1)
 
                 # unpad gather_ids: [bsz, seqlen, k] -> [total_nnz, k] -> [1, total_nnz, k]
-                gather_ids_rmpad = index_first_axis(
-                    gather_ids_full.reshape(batch_size * seqlen, k), indices
-                ).unsqueeze(0)  # (1, total_nnz, k)
+                gather_ids_rmpad = index_first_axis(gather_ids_full.reshape(batch_size * seqlen, k), indices).unsqueeze(
+                    0
+                )  # (1, total_nnz, k)
 
                 is_mask_all_zero = attention_mask.sum() == 0
                 if is_mask_all_zero:
                     input_ids_rmpad = torch.zeros(
                         (1, self.ulysses_sequence_parallel_size),
-                        device=input_ids.device, dtype=input_ids.dtype,
+                        device=input_ids.device,
+                        dtype=input_ids.dtype,
                     )
                     if position_ids.dim() == 3:
                         position_ids_rmpad = torch.zeros(
                             (position_ids.shape[0], 1, self.ulysses_sequence_parallel_size),
-                            device=position_ids.device, dtype=position_ids.dtype,
+                            device=position_ids.device,
+                            dtype=position_ids.dtype,
                         )
                     else:
                         position_ids_rmpad = torch.zeros(
                             (1, self.ulysses_sequence_parallel_size),
-                            device=position_ids.device, dtype=position_ids.dtype,
+                            device=position_ids.device,
+                            dtype=position_ids.dtype,
                         )
                     gather_ids_rmpad = torch.zeros(
                         (1, self.ulysses_sequence_parallel_size, k),
-                        device=gather_ids.device, dtype=torch.int32,
+                        device=gather_ids.device,
+                        dtype=torch.int32,
                     )
 
                 if self.use_ulysses_sp:
@@ -434,14 +434,23 @@ class DataParallelPPOActor(BasePPOActor):
 
                 if self.use_ulysses_sp:
                     log_probs = gather_outputs_and_unpad(
-                        log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size,
+                        log_probs,
+                        gather_dim=0,
+                        unpad_dim=0,
+                        padding_size=pad_size,
                     )
                     entropy_rmpad = gather_outputs_and_unpad(
-                        entropy_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size,
+                        entropy_rmpad,
+                        gather_dim=0,
+                        unpad_dim=0,
+                        padding_size=pad_size,
                     )
                     # gathered: (total_nnz/sp, k) -> gather on dim=0, unpad
                     gathered = gather_outputs_and_unpad(
-                        gathered, gather_dim=0, unpad_dim=0, padding_size=pad_size,
+                        gathered,
+                        gather_dim=0,
+                        unpad_dim=0,
+                        padding_size=pad_size,
                     )
 
                 if is_mask_all_zero:
@@ -450,16 +459,22 @@ class DataParallelPPOActor(BasePPOActor):
                     gathered = gathered[:0]
 
                 full_log_probs = pad_input(
-                    hidden_states=log_probs.unsqueeze(-1), indices=indices,
-                    batch=batch_size, seqlen=seqlen,
+                    hidden_states=log_probs.unsqueeze(-1),
+                    indices=indices,
+                    batch=batch_size,
+                    seqlen=seqlen,
                 )
                 full_entropy = pad_input(
-                    hidden_states=entropy_rmpad.unsqueeze(-1), indices=indices,
-                    batch=batch_size, seqlen=seqlen,
+                    hidden_states=entropy_rmpad.unsqueeze(-1),
+                    indices=indices,
+                    batch=batch_size,
+                    seqlen=seqlen,
                 )
                 full_gathered = pad_input(
-                    hidden_states=gathered, indices=indices,
-                    batch=batch_size, seqlen=seqlen,
+                    hidden_states=gathered,
+                    indices=indices,
+                    batch=batch_size,
+                    seqlen=seqlen,
                 )  # (bsz, seqlen, k)
 
                 entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]
@@ -620,6 +635,7 @@ class DataParallelPPOActor(BasePPOActor):
                 multi_modal_inputs = {}
                 if "multi_modal_inputs" in model_inputs.keys():
                     from verl.utils.model import extract_multi_modal_inputs
+
                     multi_modal_inputs = extract_multi_modal_inputs(model_inputs["multi_modal_inputs"])
 
                 with torch.autocast(device_type=self.device_name, dtype=self.param_dtype):
@@ -629,15 +645,14 @@ class DataParallelPPOActor(BasePPOActor):
                     extra_args = {"temperature": temperature, "return_dict": True, "extract_topk_k": extract_topk_k}
 
                     if self.use_remove_padding:
-                        input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(
-                            input_ids.unsqueeze(-1), attention_mask
-                        )
+                        input_ids_rmpad, indices, cu_seqlens, *_ = unpad_input(input_ids.unsqueeze(-1), attention_mask)
                         input_ids_rmpad = input_ids_rmpad.transpose(0, 1)
 
                         if position_ids.dim() == 3:
                             position_ids_rmpad = (
                                 index_first_axis(rearrange(position_ids, "c b s ... -> (b s) c ..."), indices)
-                                .transpose(0, 1).unsqueeze(1)
+                                .transpose(0, 1)
+                                .unsqueeze(1)
                             )
                         else:
                             position_ids_rmpad = index_first_axis(
@@ -648,17 +663,20 @@ class DataParallelPPOActor(BasePPOActor):
                         if is_mask_all_zero:
                             input_ids_rmpad = torch.zeros(
                                 (1, self.ulysses_sequence_parallel_size),
-                                device=input_ids.device, dtype=input_ids.dtype,
+                                device=input_ids.device,
+                                dtype=input_ids.dtype,
                             )
                             if position_ids.dim() == 3:
                                 position_ids_rmpad = torch.zeros(
                                     (position_ids.shape[0], 1, self.ulysses_sequence_parallel_size),
-                                    device=position_ids.device, dtype=position_ids.dtype,
+                                    device=position_ids.device,
+                                    dtype=position_ids.dtype,
                                 )
                             else:
                                 position_ids_rmpad = torch.zeros(
                                     (1, self.ulysses_sequence_parallel_size),
-                                    device=position_ids.device, dtype=position_ids.dtype,
+                                    device=position_ids.device,
+                                    dtype=position_ids.dtype,
                                 )
 
                         if self.use_ulysses_sp:
@@ -667,18 +685,24 @@ class DataParallelPPOActor(BasePPOActor):
                             )
                             if is_vlm_model:
                                 input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(
-                                    input_ids_rmpad, position_ids_rmpad=position_ids_rmpad,
+                                    input_ids_rmpad,
+                                    position_ids_rmpad=position_ids_rmpad,
                                     sp_size=self.ulysses_sequence_parallel_size,
                                 )
                             else:
                                 input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(
-                                    input_ids_rmpad, position_ids_rmpad=position_ids_rmpad,
+                                    input_ids_rmpad,
+                                    position_ids_rmpad=position_ids_rmpad,
                                     sp_size=self.ulysses_sequence_parallel_size,
                                 )
 
                         output = self.actor_module(
-                            input_ids=input_ids_rmpad, attention_mask=None, position_ids=position_ids_rmpad,
-                            **multi_modal_inputs, use_cache=False, **extra_args,
+                            input_ids=input_ids_rmpad,
+                            attention_mask=None,
+                            position_ids=position_ids_rmpad,
+                            **multi_modal_inputs,
+                            use_cache=False,
+                            **extra_args,
                         )
 
                         log_probs = output.log_probs.squeeze(0)
@@ -686,18 +710,30 @@ class DataParallelPPOActor(BasePPOActor):
                         topk_ids = output.topk_ids.squeeze(0)  # (total_nnz/sp, k)
 
                         if self.use_ulysses_sp:
-                            log_probs = gather_outputs_and_unpad(log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size)
-                            entropy = gather_outputs_and_unpad(entropy, gather_dim=0, unpad_dim=0, padding_size=pad_size)
-                            topk_ids = gather_outputs_and_unpad(topk_ids, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+                            log_probs = gather_outputs_and_unpad(
+                                log_probs, gather_dim=0, unpad_dim=0, padding_size=pad_size
+                            )
+                            entropy = gather_outputs_and_unpad(
+                                entropy, gather_dim=0, unpad_dim=0, padding_size=pad_size
+                            )
+                            topk_ids = gather_outputs_and_unpad(
+                                topk_ids, gather_dim=0, unpad_dim=0, padding_size=pad_size
+                            )
 
                         if is_mask_all_zero:
                             log_probs = log_probs[:0]
                             entropy = entropy[:0]
                             topk_ids = topk_ids[:0]
 
-                        full_log_probs = pad_input(hidden_states=log_probs.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen)
-                        full_entropy = pad_input(hidden_states=entropy.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen)
-                        full_topk_ids = pad_input(hidden_states=topk_ids, indices=indices, batch=batch_size, seqlen=seqlen)
+                        full_log_probs = pad_input(
+                            hidden_states=log_probs.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
+                        )
+                        full_entropy = pad_input(
+                            hidden_states=entropy.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
+                        )
+                        full_topk_ids = pad_input(
+                            hidden_states=topk_ids, indices=indices, batch=batch_size, seqlen=seqlen
+                        )
 
                         log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]
                         entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]
@@ -705,8 +741,12 @@ class DataParallelPPOActor(BasePPOActor):
 
                     else:
                         output = self.actor_module(
-                            input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids,
-                            **multi_modal_inputs, use_cache=False, **extra_args,
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            position_ids=position_ids,
+                            **multi_modal_inputs,
+                            use_cache=False,
+                            **extra_args,
                         )
                         log_probs = output.log_probs[:, -response_length - 1 : -1]
                         entropy = output.entropy[:, -response_length - 1 : -1]
@@ -807,7 +847,8 @@ class DataParallelPPOActor(BasePPOActor):
                     gathered_log_probs = None
                     if use_topk_opd:
                         entropy, log_prob, gathered_log_probs = self._forward_micro_batch_topk(
-                            model_inputs, temperature=temperature,
+                            model_inputs,
+                            temperature=temperature,
                             gather_ids=model_inputs["student_topk_ids"],
                         )
                     else:
@@ -887,16 +928,22 @@ class DataParallelPPOActor(BasePPOActor):
                         # renormalize over top-k with temperature (applied to both, Hinton-style KD)
                         opd_temp = data.meta_info.get("opd_clip", 1.0)
                         teacher_topk_lp_t = teacher_topk_lp.detach() / opd_temp
-                        teacher_topk_lp_norm = teacher_topk_lp_t - torch.logsumexp(teacher_topk_lp_t, dim=-1, keepdim=True)
+                        teacher_topk_lp_norm = teacher_topk_lp_t - torch.logsumexp(
+                            teacher_topk_lp_t, dim=-1, keepdim=True
+                        )
                         student_topk_lp_t = gathered_log_probs / opd_temp
-                        student_topk_lp_norm = student_topk_lp_t - torch.logsumexp(student_topk_lp_t, dim=-1, keepdim=True)
+                        student_topk_lp_norm = student_topk_lp_t - torch.logsumexp(
+                            student_topk_lp_t, dim=-1, keepdim=True
+                        )
                         # KL(teacher_T || student_T) with renormalized top-k distributions
                         teacher_probs = teacher_topk_lp_norm.exp()
                         topk_kl = (teacher_probs * (teacher_topk_lp_norm - student_topk_lp_norm)).sum(-1)
                         topk_kl = topk_kl.clamp(min=0.0)
                         opd_loss_mask = response_mask * opd_mask.float().unsqueeze(-1)
                         topk_kl_loss = agg_loss(
-                            loss_mat=topk_kl, loss_mask=opd_loss_mask, loss_agg_mode=loss_agg_mode,
+                            loss_mat=topk_kl,
+                            loss_mask=opd_loss_mask,
+                            loss_agg_mode=loss_agg_mode,
                         )
                         opd_alpha = data.meta_info.get("opd_alpha", 1.0)
                         policy_loss = policy_loss + topk_kl_loss * opd_alpha

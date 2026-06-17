@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Standalone, verl-free driver for OdysSim's tau_usi rollout.
 
 Runs :func:`agents.tau_usi.agent.rollout_one_task` (OdysSim's OWN model-as-user-
@@ -77,8 +91,11 @@ async def _run(args):
     config = SimpleNamespace(
         prompt_length=args.prompt_length,
         response_length=args.response_length,
-        temperature=1.0, top_p=1.0, top_k=-1,
-        repetition_penalty=1.0, calculate_log_probs=False,
+        temperature=1.0,
+        top_p=1.0,
+        top_k=-1,
+        repetition_penalty=1.0,
+        calculate_log_probs=False,
     )
     llm = CallAPI(url=args.user_sim_model, tokenizer=tok, config=config)
     ctx = EvalContext(llm, tok, config)
@@ -94,8 +111,11 @@ async def _run(args):
                 rec, _ = await rollout_one_task(data, ctx)
                 rec["elapsed_seconds"] = round(time.monotonic() - t0, 1)
                 rec["user_sim_model"] = args.user_sim_model
-                print(f"[{dom}_{idx}] reward={rec['reward']} turns={len(rec['conversation'])} "
-                      f"term={rec['termination_reason']} ({rec['elapsed_seconds']}s)", flush=True)
+                print(
+                    f"[{dom}_{idx}] reward={rec['reward']} turns={len(rec['conversation'])} "
+                    f"term={rec['termination_reason']} ({rec['elapsed_seconds']}s)",
+                    flush=True,
+                )
                 return rec
             except Exception as e:
                 print(f"[{dom}_{idx}] ERROR: {type(e).__name__}: {e}", flush=True)

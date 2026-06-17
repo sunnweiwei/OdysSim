@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # coding=utf-8
 # Copyright 2024 The Google Research Authors.
 #
@@ -20,7 +34,7 @@ import json
 import random
 import re
 import string
-from typing import Dict, Optional, Sequence, Union
+from typing import Optional, Sequence
 
 try:
     import langdetect
@@ -34,7 +48,7 @@ except ImportError:
 
 from . import instructions_util
 
-_InstructionArgsDtype = Optional[Dict[str, Union[int, str, Sequence[str]]]]
+_InstructionArgsDtype = Optional[dict[str, int | str | Sequence[str]]]
 
 _LANGUAGES = instructions_util.LANGUAGE_CODES
 
@@ -614,9 +628,7 @@ class PostscriptChecker(Instruction):
         Returns:
           A string representing the instruction description.
         """
-        self._postscript_marker = (
-            postscript_marker.strip() if isinstance(postscript_marker, str) else postscript_marker
-        )
+        self._postscript_marker = postscript_marker.strip() if isinstance(postscript_marker, str) else postscript_marker
         if self._postscript_marker is None:
             self._postscript_marker = random.choice(_POSTSCRIPT_MARKER)
 
@@ -1324,8 +1336,7 @@ class LetterFrequencyChecker(Instruction):
             self._comparison_relation = random.choice(_COMPARISON_RELATION)
         elif let_relation not in _COMPARISON_RELATION:
             raise ValueError(
-                "The supported relation for comparison must be in "
-                f"{_COMPARISON_RELATION}, but {let_relation} is given."
+                f"The supported relation for comparison must be in {_COMPARISON_RELATION}, but {let_relation} is given."
             )
         else:
             self._comparison_relation = let_relation
@@ -1672,7 +1683,7 @@ class SentenceHyphenChecker(Instruction):
         sentences_gold = instructions_util.split_into_sentences(sentences_gold)
         sentences = value.split("-")
         # Check if there are any spaces between sentences
-        for sentence, gold in zip(sentences, sentences_gold):
+        for sentence, gold in zip(sentences, sentences_gold, strict=False):
             if sentence.strip() != sentence:
                 return False
             elif sentence != gold:
@@ -1992,7 +2003,7 @@ class FirstWordSentChecker(Instruction):
             self._first_word = instructions_util.generate_keywords(num_keywords=1)[0]
         else:
             if not isinstance(first_word, str):
-                self._first_word == first_word[0].strip()
+                self._first_word == first_word[0].strip()  # noqa: B015
             else:
                 self._first_word = first_word.strip()
 
@@ -2309,7 +2320,9 @@ class PunctuationExclamationChecker(Instruction):
 
     def build_description(self):
         """Build the instruction description."""
-        self._description_pattern = "In your entire response, refrain from the use of ! (i.e. exclamation marks) as punctuation and in general."
+        self._description_pattern = (
+            "In your entire response, refrain from the use of ! (i.e. exclamation marks) as punctuation and in general."
+        )
         return self._description_pattern
 
     def get_instruction_args(self):

@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 IFBench agent for Harmony evaluation.
 
@@ -22,6 +36,7 @@ logger = logging.getLogger(__name__)
 try:
     from agents.instruct.instructions_registry import INSTRUCTION_DICT as _IFBENCH_DICT
     from agents.instruct.verifiable_instructions import INSTRUCTION_DICT as _VI_DICT
+
     INSTRUCTION_DICT = {**_IFBENCH_DICT, **_VI_DICT}
 except ImportError as e:
     logger.warning("IFBench evaluation dependencies not available (%s). Rewards will be 0.", e)
@@ -91,8 +106,12 @@ async def agent_loop(data, context):
     ]
 
     agent = Agent(
-        context.llm_client, chat, context.tokenizer, context.config,
-        prompt_turn=2, enable_think=True,
+        context.llm_client,
+        chat,
+        context.tokenizer,
+        context.config,
+        prompt_turn=2,
+        enable_think=True,
     )
     response = await agent.step()
 
@@ -103,13 +122,16 @@ async def agent_loop(data, context):
     n = len(follow_list)
     reward = sum(follow_list) / n if n > 0 else 0.0
 
-    output = await agent.get_agent_output(reward, extra_info={
-        "all/score": reward,
-        "ifbench/reward": reward,
-        "ifbench/follow_all": float(follow_all),
-        "ifbench/num_constraints": float(n),
-        "ifbench/constraints_followed": float(sum(follow_list)),
-    })
+    output = await agent.get_agent_output(
+        reward,
+        extra_info={
+            "all/score": reward,
+            "ifbench/reward": reward,
+            "ifbench/follow_all": float(follow_all),
+            "ifbench/num_constraints": float(n),
+            "ifbench/constraints_followed": float(sum(follow_list)),
+        },
+    )
 
     await process_post_chat(data, context, agent.chat, output)
     return output

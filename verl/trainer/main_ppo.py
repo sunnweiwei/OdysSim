@@ -164,6 +164,7 @@ class TaskRunner:
         custom_cls_path = config.actor_rollout_ref.get("cls", None)
         if custom_cls_path:
             import importlib
+
             module_path, cls_name = custom_cls_path.rsplit(".", 1)
             actor_rollout_cls = getattr(importlib.import_module(module_path), cls_name)
 

@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Canonical tau-USI scorer for OdysSim.
 
 A faithful, self-contained port of AgentArena's
@@ -67,18 +81,37 @@ MIN_OTHER_SAMPLES = 10
 # yardstick as the leaderboard. (gemini-2.5-pro is intentionally excluded — only
 # 39 entries.) Kept in sync with analyze_interaction.ALL_LLM_DATAS.
 PUBLISHED_BASELINES = [
-    "gpt-5-mini", "gpt-5", "gpt-5.1", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo",
-    "UserLM-8b", "CoSER-Llama-3.1-8B", "Human-Like-Qwen2.5-7B-Instruct",
+    "gpt-5-mini",
+    "gpt-5",
+    "gpt-5.1",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-3.5-turbo",
+    "UserLM-8b",
+    "CoSER-Llama-3.1-8B",
+    "Human-Like-Qwen2.5-7B-Instruct",
     "humanlm-opinion",
-    "deepseek-ai_DeepSeek-V3.1", "gemini-2.0-flash", "gemini-2.5-flash",
-    "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-3-pro-preview",
-    "gemini-3.1-pro-preview", "meta-llama_Llama-3.3-70B-Instruct-Turbo",
-    "meta-llama_Llama-4-Maverick-17B-128E-Instruct-FP8", "MiniMaxAI_MiniMax-M2.5",
-    "moonshotai_Kimi-K2.5", "openai_gpt-oss-120b", "Qwen_Qwen2.5-7B-Instruct-Turbo",
-    "Qwen_Qwen3-235B-A22B-Thinking-2507", "Qwen_Qwen3-Next-80B-A3B-Instruct",
-    "claude-3-haiku-20240307", "claude-3-5-sonnet-20241022",
-    "claude-3-7-sonnet-20250219-v1_0", "claude-haiku-4-5-20251001-v1_0",
-    "claude-opus-4-20250514-v1_0", "claude-sonnet-4-20250514-v1_0",
+    "deepseek-ai_DeepSeek-V3.1",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-3-pro-preview",
+    "gemini-3.1-pro-preview",
+    "meta-llama_Llama-3.3-70B-Instruct-Turbo",
+    "meta-llama_Llama-4-Maverick-17B-128E-Instruct-FP8",
+    "MiniMaxAI_MiniMax-M2.5",
+    "moonshotai_Kimi-K2.5",
+    "openai_gpt-oss-120b",
+    "Qwen_Qwen2.5-7B-Instruct-Turbo",
+    "Qwen_Qwen3-235B-A22B-Thinking-2507",
+    "Qwen_Qwen3-Next-80B-A3B-Instruct",
+    "claude-3-haiku-20240307",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-7-sonnet-20250219-v1_0",
+    "claude-haiku-4-5-20251001-v1_0",
+    "claude-opus-4-20250514-v1_0",
+    "claude-sonnet-4-20250514-v1_0",
 ]
 
 
@@ -91,8 +124,11 @@ def resolve_baselines(eval_results_dir, names=None):
     """
     eval_results_dir = Path(eval_results_dir)
     names = names if names is not None else PUBLISHED_BASELINES
-    return [eval_results_dir / f"eval_results_{n}.json" for n in names
-            if (eval_results_dir / f"eval_results_{n}.json").exists()]
+    return [
+        eval_results_dir / f"eval_results_{n}.json"
+        for n in names
+        if (eval_results_dir / f"eval_results_{n}.json").exists()
+    ]
 
 
 # Frozen ECE difficulty map shipped with the repo (task_key -> pooled success
@@ -212,6 +248,7 @@ def compute_ece_pair(sim: dict[str, int], hum: dict[str, int], difficulty: dict[
 
 # ── Eval agreement (survey-based) ────────────────────────────────────────────
 
+
 def _normalize_ordinal(entry: dict, field: str):
     """Return ordinal survey value normalized to [0,1], or None if missing."""
     omap = FIELD_ORDINAL.get(field, {})
@@ -272,7 +309,7 @@ def compute_model_eval_agreement(batches: list[dict], model_name: str, survey_di
 
     rng = np.random.default_rng(42)
     per_batch_scores = []
-    for bi, si in zip(batches, survey_batches):
+    for bi, si in zip(batches, survey_batches, strict=False):
         bi_kept = {k: v for k, v in bi.items() if v.get("keep", True)}
         overlap = sorted(set(bi_kept) & set(si))
         if not overlap:
@@ -291,6 +328,7 @@ def compute_model_eval_agreement(batches: list[dict], model_name: str, survey_di
 
 
 # ── Dice-Sorensen similarity per dimension ───────────────────────────────────
+
 
 def compute_dimension_dice(human_row: dict, llm_row: dict) -> dict[str, float]:
     """Dice-Sorensen similarity per dimension from summary rows.
@@ -335,6 +373,7 @@ def compute_dimension_dice(human_row: dict, llm_row: dict) -> dict[str, float]:
 
 
 # ── Row builder ──────────────────────────────────────────────────────────────
+
 
 def build_row(entries: dict, source: str) -> dict:
     """Build a summary (mean-over-tasks) feature row from a set of entries.
@@ -383,6 +422,7 @@ def build_row(entries: dict, source: str) -> dict:
 
 # ── Batch loading and run splitting ──────────────────────────────────────────
 
+
 def load_batches_from_unified(path) -> list[dict]:
     """Split unified.json (165 x 3 annotators) into 3 batch dicts with base IDs."""
     all_data = json.loads(Path(path).read_text())
@@ -423,7 +463,7 @@ def _average_rows(rows: list[dict]) -> dict:
     avg: dict[str, Any] = {}
     for key in rows[0]:
         vals = [r[key] for r in rows]
-        if isinstance(vals[0], (int, float)):
+        if isinstance(vals[0], (int, float)):  # noqa: UP038
             avg[key] = float(np.mean(vals))
         else:
             avg[key] = vals[0]
@@ -434,7 +474,7 @@ def _model_label(path) -> str:
     """Derive a short model label from an eval_results filename stem."""
     stem = Path(path).stem  # e.g. "eval_results_UserLM-8b"
     if stem.startswith("eval_results_"):
-        return stem[len("eval_results_"):]
+        return stem[len("eval_results_") :]
     return stem
 
 
@@ -519,16 +559,18 @@ def compute_all_with_variance(batches, llm_files, survey_dir=None, difficulty_fi
             usi = (d1 + d2 + d3 + d4 + (1 - ece) * 100) / 5
         hh_usi_vals.append(usi)
 
-    results.append({
-        "name": "Human (inter-ann.)",
-        "D1_conv": (float(np.mean(hh_dice_vals["D1_conv"])), float(np.std(hh_dice_vals["D1_conv"]))),
-        "D2_info": (float(np.mean(hh_dice_vals["D2_info"])), float(np.std(hh_dice_vals["D2_info"]))),
-        "D3_clarif": (float(np.mean(hh_dice_vals["D3_clarif"])), float(np.std(hh_dice_vals["D3_clarif"]))),
-        "D4_react": (float(np.mean(hh_dice_vals["D4_react"])), float(np.std(hh_dice_vals["D4_react"]))),
-        "eval_agree": hh_eval_agree_val,
-        "ece": (float(np.mean(hh_ece_vals)), float(np.std(hh_ece_vals))) if hh_ece_vals else (None, None),
-        "usi": (float(np.mean(hh_usi_vals)), float(np.std(hh_usi_vals))) if hh_usi_vals else (None, None),
-    })
+    results.append(
+        {
+            "name": "Human (inter-ann.)",
+            "D1_conv": (float(np.mean(hh_dice_vals["D1_conv"])), float(np.std(hh_dice_vals["D1_conv"]))),
+            "D2_info": (float(np.mean(hh_dice_vals["D2_info"])), float(np.std(hh_dice_vals["D2_info"]))),
+            "D3_clarif": (float(np.mean(hh_dice_vals["D3_clarif"])), float(np.std(hh_dice_vals["D3_clarif"]))),
+            "D4_react": (float(np.mean(hh_dice_vals["D4_react"])), float(np.std(hh_dice_vals["D4_react"]))),
+            "eval_agree": hh_eval_agree_val,
+            "ece": (float(np.mean(hh_ece_vals)), float(np.std(hh_ece_vals))) if hh_ece_vals else (None, None),
+            "usi": (float(np.mean(hh_usi_vals)), float(np.std(hh_usi_vals))) if hh_usi_vals else (None, None),
+        }
+    )
 
     # ── Model scores (pooled model vs each of 3 human batches) ──────────────
     for idx_f, llm_file in enumerate(llm_files):
@@ -583,23 +625,25 @@ def compute_all_with_variance(batches, llm_files, survey_dir=None, difficulty_fi
 
             if eval_agree_result is not None:
                 ea_mean = eval_agree_result[0]
-                usi = (dice["D1_conv"] + dice["D2_info"] + dice["D3_clarif"] +
-                       dice["D4_react"] + ea_mean + (1 - ece) * 100) / 6
+                usi = (
+                    dice["D1_conv"] + dice["D2_info"] + dice["D3_clarif"] + dice["D4_react"] + ea_mean + (1 - ece) * 100
+                ) / 6
             else:
-                usi = (dice["D1_conv"] + dice["D2_info"] + dice["D3_clarif"] +
-                       dice["D4_react"] + (1 - ece) * 100) / 5
+                usi = (dice["D1_conv"] + dice["D2_info"] + dice["D3_clarif"] + dice["D4_react"] + (1 - ece) * 100) / 5
             usi_vals.append(usi)
 
-        results.append({
-            "name": model_name,
-            "D1_conv": (float(np.mean(dice_vals["D1_conv"])), float(np.std(dice_vals["D1_conv"]))),
-            "D2_info": (float(np.mean(dice_vals["D2_info"])), float(np.std(dice_vals["D2_info"]))),
-            "D3_clarif": (float(np.mean(dice_vals["D3_clarif"])), float(np.std(dice_vals["D3_clarif"]))),
-            "D4_react": (float(np.mean(dice_vals["D4_react"])), float(np.std(dice_vals["D4_react"]))),
-            "eval_agree": eval_agree_result,
-            "ece": (float(np.mean(ece_vals)), float(np.std(ece_vals))) if ece_vals else (None, None),
-            "usi": (float(np.mean(usi_vals)), float(np.std(usi_vals))) if usi_vals else (None, None),
-        })
+        results.append(
+            {
+                "name": model_name,
+                "D1_conv": (float(np.mean(dice_vals["D1_conv"])), float(np.std(dice_vals["D1_conv"]))),
+                "D2_info": (float(np.mean(dice_vals["D2_info"])), float(np.std(dice_vals["D2_info"]))),
+                "D3_clarif": (float(np.mean(dice_vals["D3_clarif"])), float(np.std(dice_vals["D3_clarif"]))),
+                "D4_react": (float(np.mean(dice_vals["D4_react"])), float(np.std(dice_vals["D4_react"]))),
+                "eval_agree": eval_agree_result,
+                "ece": (float(np.mean(ece_vals)), float(np.std(ece_vals))) if ece_vals else (None, None),
+                "usi": (float(np.mean(usi_vals)), float(np.std(usi_vals))) if usi_vals else (None, None),
+            }
+        )
 
     return results
 
@@ -608,8 +652,10 @@ def compute_all_with_variance(batches, llm_files, survey_dir=None, difficulty_fi
 # `score`  — aggregate OdysSim's one-by-one *_task_results.json into the USI table
 # `freeze` — recompute the shipped ECE difficulty map from baseline eval_results
 
+
 def _default_data_dir():
     import os
+
     env = os.getenv("TAU_USI_DATA_DIR")
     return Path(env) if env else Path(__file__).resolve().parents[2] / "data" / "tau_usi"
 
@@ -625,9 +671,12 @@ def task_results_to_eval_results(payload):
     for r in records:
         iid = r.get("instance_id") or f"{r['domain']}_{r['task_index']}"
         out[iid] = {
-            "instance_id": iid, "agent_id": r.get("agent_id", "agent-origin"),
-            "conversation": r["conversation"], "survey": r.get("survey", {}) or {},
-            "reward": float(r.get("reward", 0) or 0), "keep": bool(r.get("keep", True)),
+            "instance_id": iid,
+            "agent_id": r.get("agent_id", "agent-origin"),
+            "conversation": r["conversation"],
+            "survey": r.get("survey", {}) or {},
+            "reward": float(r.get("reward", 0) or 0),
+            "keep": bool(r.get("keep", True)),
         }
     return out
 
@@ -643,8 +692,10 @@ def _print_table(results, focus=None):
     print(hdr.format("Model", "D1", "D2", "D3", "D4", "Eval", "ECE", "USI"))
     print("-" * 116)
     human = [r for r in results if r["name"] == "Human (inter-ann.)"]
-    rest = sorted([r for r in results if r["name"] != "Human (inter-ann.)"],
-                  key=lambda r: -(r["usi"][0] if r["usi"] and r["usi"][0] is not None else -1))
+    rest = sorted(
+        [r for r in results if r["name"] != "Human (inter-ann.)"],
+        key=lambda r: -(r["usi"][0] if r["usi"] and r["usi"][0] is not None else -1),
+    )
     for r in human + rest:
         line = f"{r['name'][:32]:32s}"
         for k in ("D1_conv", "D2_info", "D3_clarif", "D4_react"):
@@ -683,11 +734,12 @@ def _score_cli(args):
         diff_files = baselines
     # else 'self': self-pooled over llm_files
 
-    llm_files = ([*baselines, converted] if (args.print_all and baselines) else [converted])
+    llm_files = [*baselines, converted] if (args.print_all and baselines) else [converted]
     survey_arg = survey_dir if survey_dir.exists() else None
     batches = load_batches_from_unified(unified)
-    results = compute_all_with_variance(batches, llm_files, survey_arg,
-                                        difficulty_files=diff_files, difficulty=difficulty)
+    results = compute_all_with_variance(
+        batches, llm_files, survey_arg, difficulty_files=diff_files, difficulty=difficulty
+    )
     by_name = {r["name"]: r for r in results}
     row = by_name.get(label)
     print()
@@ -696,10 +748,13 @@ def _score_cli(args):
 
     keys = ["D1_conv", "D2_info", "D3_clarif", "D4_react", "eval_agree", "ece", "usi"]
     metrics = {
-        "label": label, "difficulty_reference": args.difficulty,
+        "label": label,
+        "difficulty_reference": args.difficulty,
         "model": ({"name": label, **{k: row.get(k) for k in keys}} if row else None),
-        "human_inter_annotator": {"name": "Human (inter-ann.)",
-                                  **{k: by_name["Human (inter-ann.)"].get(k) for k in keys}},
+        "human_inter_annotator": {
+            "name": "Human (inter-ann.)",
+            **{k: by_name["Human (inter-ann.)"].get(k) for k in keys},
+        },
     }
     mpath = out_dir / f"{label}_aggregate_metrics.json"
     mpath.write_text(json.dumps(metrics, indent=2))
@@ -717,6 +772,7 @@ def _freeze_cli(args):
 
 def _main(argv=None):
     import argparse
+
     ap = argparse.ArgumentParser(description="tau-USI scorer — matches AgentArena's compute_all_with_variance.")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -725,8 +781,12 @@ def _main(argv=None):
     s.add_argument("--data-dir", default=None, help="default <repo>/data/tau_usi or $TAU_USI_DATA_DIR")
     s.add_argument("--label", default=None)
     s.add_argument("--out-dir", default=None)
-    s.add_argument("--difficulty", choices=["frozen", "baselines", "self"], default="frozen",
-                   help="frozen (shipped map, no baselines — default) | baselines (recompute) | self (paper self-pool)")
+    s.add_argument(
+        "--difficulty",
+        choices=["frozen", "baselines", "self"],
+        default="frozen",
+        help="frozen (shipped map, no baselines — default) | baselines (recompute) | self (paper self-pool)",
+    )
     s.add_argument("--difficulty-json", default=None)
     s.add_argument("--print-all", action="store_true", help="print the full leaderboard (needs baseline eval_results)")
     s.set_defaults(fn=_score_cli)

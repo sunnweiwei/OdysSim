@@ -1,16 +1,28 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import uuid
 
 import numpy as np
-import torch
 from omegaconf import OmegaConf, open_dict
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
+from sft.dataset import SFTDataset, sft_collate_fn
 from verl import DataProto
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.utils.tracking import Tracking
-
-from sft.dataset import SFTDataset, sft_collate_fn
 
 
 class _MainProcessCollate:
@@ -27,7 +39,9 @@ class _MainProcessCollate:
         self.last_collate_s = 0.0
 
     def __iter__(self):
-        import queue, threading, time
+        import queue
+        import threading
+        import time
 
         q: queue.Queue = queue.Queue(maxsize=2)
         DONE = object()
@@ -81,6 +95,7 @@ class SFTRayTrainer(RayPPOTrainer):
 
     def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler):
         from functools import partial
+
         config = self.config
         tokenizer = self.tokenizer
         lazy = config.data.get("lazy_load", False)
@@ -95,15 +110,13 @@ class SFTRayTrainer(RayPPOTrainer):
         )
 
         # ── SFT train dataset ──
-        self.train_dataset = SFTDataset(
-            config.data.train_files, tokenizer, config=config, lazy=lazy, seed=seed
-        )
+        self.train_dataset = SFTDataset(config.data.train_files, tokenizer, config=config, lazy=lazy, seed=seed)
         self.train_dataloader = _MainProcessCollate(
             StatefulDataLoader(
                 dataset=self.train_dataset,
                 batch_size=train_batch_size,
                 shuffle=True,
-                collate_fn=list,   # workers return raw sample lists — no padding
+                collate_fn=list,  # workers return raw sample lists — no padding
                 num_workers=num_workers,
                 drop_last=True,
             ),
@@ -113,9 +126,7 @@ class SFTRayTrainer(RayPPOTrainer):
         # ── SFT val dataset (fast loss eval, test_freq) ──
         val_files = config.data.get("val_files")
         if val_files:
-            self.sft_val_dataset = SFTDataset(
-                val_files, tokenizer, config=config, lazy=lazy, seed=0
-            )
+            self.sft_val_dataset = SFTDataset(val_files, tokenizer, config=config, lazy=lazy, seed=0)
             val_batch_size = config.data.get("val_batch_size") or train_batch_size
             self.sft_val_dataloader = _MainProcessCollate(
                 StatefulDataLoader(
@@ -134,9 +145,7 @@ class SFTRayTrainer(RayPPOTrainer):
         # ── Posttrain dataset (N-step LR-fixed warmup before each rl eval) ──
         posttrain_files = config.data.get("posttrain_files")
         if posttrain_files:
-            self.posttrain_dataset = SFTDataset(
-                posttrain_files, tokenizer, config=config, lazy=lazy, seed=seed
-            )
+            self.posttrain_dataset = SFTDataset(posttrain_files, tokenizer, config=config, lazy=lazy, seed=seed)
             posttrain_batch_size = config.data.get("posttrain_batch_size", None) or train_batch_size
             self.posttrain_dataloader = _MainProcessCollate(
                 StatefulDataLoader(
@@ -198,8 +207,7 @@ class SFTRayTrainer(RayPPOTrainer):
         except Exception as e:
             print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
-        print(f"[SFT] train batches/epoch: {len(self.train_dataloader)}, "
-              f"total steps: {self.total_training_steps}")
+        print(f"[SFT] train batches/epoch: {len(self.train_dataloader)}, total steps: {self.total_training_steps}")
 
     # ── Training loop ───────────────────────────────────────────────────────────
 
@@ -259,9 +267,7 @@ class SFTRayTrainer(RayPPOTrainer):
                     [str(uuid.uuid4()) for _ in range(len(batch.batch))],
                     dtype=object,
                 )
-                batch.meta_info["global_token_num"] = (
-                    batch.batch["attention_mask"].sum(dim=-1).tolist()
-                )
+                batch.meta_info["global_token_num"] = batch.batch["attention_mask"].sum(dim=-1).tolist()
 
                 # ── actor update (SFT loss) ──
                 t0 = time.perf_counter()
@@ -271,6 +277,7 @@ class SFTRayTrainer(RayPPOTrainer):
                 metrics = {}
                 if hasattr(actor_output, "meta_info") and "metrics" in actor_output.meta_info:
                     from verl.utils.metric import reduce_metrics
+
                     metrics.update(reduce_metrics(actor_output.meta_info["metrics"]))
                 tokens = int(batch.batch["attention_mask"].sum())
                 response_tokens = int(batch.batch["response_mask"].sum())
@@ -336,6 +343,7 @@ class SFTRayTrainer(RayPPOTrainer):
         had been posttrained, without actually polluting midtrain state.
         """
         import os
+
         snap_path = os.path.join(self.config.trainer.posttrain_snapshot_dir, "snapshot")
         n_steps = int(self.config.trainer.posttrain_steps)
         lr = float(self.config.trainer.posttrain_lr)
@@ -348,8 +356,7 @@ class SFTRayTrainer(RayPPOTrainer):
         if eval_raw:
             raw_metrics = self._validate()
             raw_metrics = {
-                k.replace("val-", "mid-val-", 1) if k.startswith("val-") else k: v
-                for k, v in raw_metrics.items()
+                k.replace("val-", "mid-val-", 1) if k.startswith("val-") else k: v for k, v in raw_metrics.items()
             }
             # Log immediately so the dashboard updates without waiting for the
             # subsequent posttrain + posttrained-eval to finish.
@@ -373,11 +380,10 @@ class SFTRayTrainer(RayPPOTrainer):
 
                 batch = DataProto.from_single_dict(batch_dict)
                 batch.non_tensor_batch["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(batch.batch))], dtype=object,
+                    [str(uuid.uuid4()) for _ in range(len(batch.batch))],
+                    dtype=object,
                 )
-                batch.meta_info["global_token_num"] = (
-                    batch.batch["attention_mask"].sum(dim=-1).tolist()
-                )
+                batch.meta_info["global_token_num"] = batch.batch["attention_mask"].sum(dim=-1).tolist()
                 self._update_actor(batch)
                 pt_pbar.update(1)
             pt_pbar.close()
@@ -399,6 +405,7 @@ class SFTRayTrainer(RayPPOTrainer):
         Reports both overall val/sft_loss and per-dataset val/sft_loss/<data_source>.
         """
         from collections import defaultdict
+
         total_loss = 0.0
         total_tokens = 0
         per_src_loss = defaultdict(float)
@@ -414,7 +421,7 @@ class SFTRayTrainer(RayPPOTrainer):
             # forward pass only — _compute_old_log_prob handles legacy/new engine
             log_prob_output, _ = self._compute_old_log_prob(batch)
             log_probs = log_prob_output.batch["old_log_probs"]  # (bsz, resp_len)
-            mask = batch.batch["response_mask"]                  # (bsz, resp_len)
+            mask = batch.batch["response_mask"]  # (bsz, resp_len)
 
             batch_loss = -(log_probs * mask).sum().item()
             batch_tokens = mask.sum().item()
@@ -427,7 +434,7 @@ class SFTRayTrainer(RayPPOTrainer):
                 # per-row loss and token counts (keep unary minus on the tensor, not the list)
                 row_loss = (-(log_probs * mask).sum(dim=-1)).detach().cpu().tolist()
                 row_tokens = mask.sum(dim=-1).detach().cpu().tolist()
-                for src, l, t in zip(sources, row_loss, row_tokens):
+                for src, l, t in zip(sources, row_loss, row_tokens, strict=False):  # noqa: E741
                     per_src_loss[str(src)] += float(l)
                     per_src_tokens[str(src)] += float(t)
 

@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Prompt templates copied from the RM-R1 evaluation code.
 
 Source: https://github.com/RM-R1-UIUC/RM-R1
@@ -63,8 +77,7 @@ RM_R1_MULTI_TURN_INSTRUCT_USER_PROMPT = (
 RM_R1_SINGLE_TURN_REASONING_USER_PROMPT = (
     "Please act as an impartial judge and evaluate the quality of the responses provided by two AI Chatbots to the Client question displayed below. \n\n"
     "[Client Question]\n{question}\n\n[The Start of Chatbot A's Response]\n{answer_a}\n[The End of Chatbot A's Response]\n\n"
-    "[The Start of Chatbot B's Response]\n{answer_b}\n[The End of Chatbot B's Response]"
-    + "\n\n"
+    "[The Start of Chatbot B's Response]\n{answer_b}\n[The End of Chatbot B's Response]" + "\n\n"
     "Output your final verdict at last by strictly following this format: "
     "'<answer>[[A]]</answer>' if Chatbot A is better, or '<answer>[[B]]</answer>' if Chatbot B is better."
 )

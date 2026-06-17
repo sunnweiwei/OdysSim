@@ -1,14 +1,33 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import asyncio
-import json
-import re
 import logging
-import json
-from agents.utils import call_openai, Agent, remove_think
+
+from agents.utils import call_openai, remove_think
 
 logger = logging.getLogger(__name__)
 
-DIMENSIONS = ['believability', 'relationship', 'knowledge', 'secret', 'social_rules', 'financial_and_material_benefits',
-              'goal']
+DIMENSIONS = [
+    "believability",
+    "relationship",
+    "knowledge",
+    "secret",
+    "social_rules",
+    "financial_and_material_benefits",
+    "goal",
+]
 
 ACTION_TYPES = ["speak", "non-verbal communication", "action", "leave"]
 
@@ -25,13 +44,13 @@ _RUBRIC_BRIEF = {
 
 
 def get_teacher_character_prompt(
-        agent_name: str,
-        background: str,
-        scenario: str,
-        goal: str,
-        other_name: str,
-        relationship: str,
-        hint: str,
+    agent_name: str,
+    background: str,
+    scenario: str,
+    goal: str,
+    other_name: str,
+    relationship: str,
+    hint: str,
 ) -> str:
     """Character prompt augmented with hint coaching notes and eval rubric.
 
@@ -103,17 +122,17 @@ _HINT_DIM_IMPORTANCE = {
 
 
 def _build_hint_prompt_v17(
-        conversation_history: str,
-        scenario: str,
-        actor_name: str,
-        actor_background: str,
-        actor_goal: str,
-        partner_name: str,
-        partner_background: str,
-        partner_goal: str,
-        relationship: str,
-        actor_scores: dict,
-        raw_eval: dict,
+    conversation_history: str,
+    scenario: str,
+    actor_name: str,
+    actor_background: str,
+    actor_goal: str,
+    partner_name: str,
+    partner_background: str,
+    partner_goal: str,
+    relationship: str,
+    actor_scores: dict,
+    raw_eval: dict,
 ) -> str:
     """v17 — Enhanced v16: all 7 dims with full depth + example lines for every dim."""
 
@@ -204,25 +223,25 @@ Weight your depth proportionally: goal and relationship get the deepest analysis
 
 ### Rubric Coaching
 
-**Goal (score: {actor_scores.get('goal', {}).get('raw', '?')}/10 — CRITICAL, 2x weight)**
+**Goal (score: {actor_scores.get("goal", {}).get("raw", "?")}/10 — CRITICAL, 2x weight)**
 [What complete goal achievement looks like for "{actor_goal}" in this scenario. What specific moment or omission held the score back. Exactly what to say or do to reach a 9-10. Literal example line.]
 
-**Relationship (score: {actor_scores.get('relationship', {}).get('raw', '?')} — HIGH weight)**
+**Relationship (score: {actor_scores.get("relationship", {}).get("raw", "?")} — HIGH weight)**
 [What +4/+5 looks like in this scenario. What was missing or what hurt the relationship. How to strengthen the bond explicitly. Literal example line.]
 
-**Knowledge (score: {actor_scores.get('knowledge', {}).get('raw', '?')}/10 — HIGH weight)**
+**Knowledge (score: {actor_scores.get("knowledge", {}).get("raw", "?")}/10 — HIGH weight)**
 [What information could have been gained. What questions were not asked. How to actively elicit new knowledge. Literal example question or probe.]
 
-**Believability (score: {actor_scores.get('believability', {}).get('raw', '?')}/10)**
+**Believability (score: {actor_scores.get("believability", {}).get("raw", "?")}/10)**
 [What natural, authentic behavior looks like for {actor_name}'s specific character and background. What felt off or generic in the transcript. How to sound more genuinely in-character. Literal example of a more natural line.]
 
-**Secret (score: {actor_scores.get('secret', {}).get('raw', '?')})**
+**Secret (score: {actor_scores.get("secret", {}).get("raw", "?")})**
 [What secret or hidden intention must be protected. Whether it was kept. If anything was revealed or implied, cite the exact moment. How to avoid this. Literal example of redirecting safely if the topic comes up: say: "..."]
 
-**Social Rules (score: {actor_scores.get('social_rules', {}).get('raw', '?')})**
+**Social Rules (score: {actor_scores.get("social_rules", {}).get("raw", "?")})**
 [Whether any norms or rules were violated, directly or indirectly. If the score is already 0 (perfect), confirm what was done well and note one thing to continue avoiding. Literal example of a safer phrasing if any risk was present.]
 
-**Financial & Material Benefits (score: {actor_scores.get('financial_and_material_benefits', {}).get('raw', '?')})**
+**Financial & Material Benefits (score: {actor_scores.get("financial_and_material_benefits", {}).get("raw", "?")})**
 [Whether material interests were advanced, missed, or lost. What opportunity existed in this conversation. Literal example of how to raise or secure material benefit naturally: say: "..."]
 
 ### Key Takeaway
@@ -232,16 +251,16 @@ Target 1000 words. Be specific, grounded in the actual transcript, and make ever
 
 
 def _build_hint_prompt_v17_2(
-        scenario: str,
-        actor_name: str,
-        actor_background: str,
-        actor_goal: str,
-        partner_name: str,
-        partner_background: str,
-        partner_goal: str,
-        relationship: str,
-        actor_scores: dict,
-        raw_eval: dict,
+    scenario: str,
+    actor_name: str,
+    actor_background: str,
+    actor_goal: str,
+    partner_name: str,
+    partner_background: str,
+    partner_goal: str,
+    relationship: str,
+    actor_scores: dict,
+    raw_eval: dict,
 ) -> str:
     """v17_2 — Same as v17 but without the embedded transcript.
     Used when the conversation history is already present in the agent context."""
@@ -263,25 +282,23 @@ def _build_hint_prompt_v17_2(
         relationship=relationship,
         actor_scores=actor_scores,
         raw_eval=raw_eval,
-    ).replace(
-        "## Conversation Transcript\n(See the conversation above in context.)\n\n", ""
-    )
+    ).replace("## Conversation Transcript\n(See the conversation above in context.)\n\n", "")
     return transition + body
 
 
 async def generate_hint(
-        conversation_log: list,
-        scenario: str,
-        actor_name: str,
-        actor_background: str,
-        actor_goal: str,
-        partner_name: str,
-        partner_background: str,
-        partner_goal: str,
-        relationship: str,
-        actor_scores: dict,
-        raw_eval: dict,
-        actor_agent=None,
+    conversation_log: list,
+    scenario: str,
+    actor_name: str,
+    actor_background: str,
+    actor_goal: str,
+    partner_name: str,
+    partner_background: str,
+    partner_goal: str,
+    relationship: str,
+    actor_scores: dict,
+    raw_eval: dict,
+    actor_agent=None,
 ):
     """Generate structured improvement hints by reflecting on the rollout and scores.
 
@@ -310,11 +327,11 @@ async def generate_hint(
                 raw_eval=raw_eval,
             )
             judge_agent = actor_agent.fork()
-            judge_agent.append({'role': 'user', 'content': prompt})
+            judge_agent.append({"role": "user", "content": prompt})
             hint_text = await judge_agent.step()
             hint_text = remove_think(hint_text)
         else:
-            conversation_history = "\n\n".join(f'{e["agent"]}: {e["natural_language"]}' for e in conversation_log)
+            conversation_history = "\n\n".join(f"{e['agent']}: {e['natural_language']}" for e in conversation_log)
             prompt = _build_hint_prompt_v17(
                 conversation_history=conversation_history,
                 scenario=scenario,
@@ -328,9 +345,9 @@ async def generate_hint(
                 actor_scores=actor_scores,
                 raw_eval=raw_eval,
             )
-            messages = [{"role": 'system', 'content': ''}, {"role": "user", "content": prompt}]
+            messages = [{"role": "system", "content": ""}, {"role": "user", "content": prompt}]
             async with asyncio.timeout(200):
-                hint_text = await call_openai(messages, model='gpt-5.4-nano', reasoning_effort='low')
+                hint_text = await call_openai(messages, model="gpt-5.4-nano", reasoning_effort="low")
     except asyncio.TimeoutError:
         logger.warning("Hint generation timed out after 60s")
         hint_text = None

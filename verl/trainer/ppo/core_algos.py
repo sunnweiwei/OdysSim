@@ -357,7 +357,9 @@ def compute_foldgrpo_advantage(
         for i in range(len(scores)):
             uid = index[i]
             # TODO@Weiwei: use (uid, role) as group key when agent_role is provided
-            group_key = (uid, str(agent_role[i]) if agent_role[i] is not None else "") if agent_role is not None else uid
+            group_key = (
+                (uid, str(agent_role[i]) if agent_role[i] is not None else "") if agent_role is not None else uid
+            )
             gid = str(gen_uid[i])
             if gid in id2seen[group_key]:
                 continue  # same rollout already counted
@@ -369,7 +371,9 @@ def compute_foldgrpo_advantage(
             id2std[group_key] = t.std() if len(t) > 1 else torch.tensor(1.0)
         for i in range(len(scores)):
             uid = index[i]
-            group_key = (uid, str(agent_role[i]) if agent_role[i] is not None else "") if agent_role is not None else uid
+            group_key = (
+                (uid, str(agent_role[i]) if agent_role[i] is not None else "") if agent_role is not None else uid
+            )
             if norm_adv_by_std_in_grpo:
                 scores[i] = (scores[i] - id2mean[group_key]) / (id2std[group_key] + epsilon)
             else:
@@ -2076,8 +2080,8 @@ def compute_opd_advantage(
         # discount based on model-token steps, not absolute position steps,
         # so env observations don't consume the discount budget
         model_count = response_mask.float().cumsum(-1)  # [B, T] 1-indexed model token count
-        gammas = discount ** model_count               # [B, T]
-        weighted = log_r * gammas                      # env tokens: log_r=0 so weighted=0
+        gammas = discount**model_count  # [B, T]
+        weighted = log_r * gammas  # env tokens: log_r=0 so weighted=0
         adv = weighted.flip(-1).cumsum(-1).flip(-1) / gammas.clamp(min=1e-8)
 
     elif estimator == "window":
@@ -2087,8 +2091,8 @@ def compute_opd_advantage(
         adv = torch.zeros_like(log_r)
         for b in range(B):
             mask_b = response_mask[b].bool()
-            model_log_r = log_r[b][mask_b]                          # [M]
-            model_suffix = model_log_r.flip(0).cumsum(0).flip(0)   # suffix sum on model tokens
+            model_log_r = log_r[b][mask_b]  # [M]
+            model_suffix = model_log_r.flip(0).cumsum(0).flip(0)  # suffix sum on model tokens
             if window > 0:
                 shifted = torch.zeros_like(model_suffix)
                 shifted[:-window] = model_suffix[window:]
@@ -2103,9 +2107,9 @@ def compute_opd_advantage(
     if normalize:
         if index is not None:
             # group-level mean subtraction (matches GRPO grouping); no std division to avoid amplifying sparse large values
-            valid = response_mask.bool() & opd_mask.bool().unsqueeze(-1)   # [B, T]
-            g_per_sample = as_torch_index(index, device=adv.device)        # [B]
-            g_per_token = g_per_sample.unsqueeze(-1).expand_as(adv)        # [B, T]
+            valid = response_mask.bool() & opd_mask.bool().unsqueeze(-1)  # [B, T]
+            g_per_sample = as_torch_index(index, device=adv.device)  # [B]
+            g_per_token = g_per_sample.unsqueeze(-1).expand_as(adv)  # [B, T]
             mean_g, _, _ = group_mean_std(adv[valid], g_per_token[valid], device=adv.device)
             norm_adv = adv - mean_g[g_per_token]
             adv = torch.where(valid, norm_adv, adv)

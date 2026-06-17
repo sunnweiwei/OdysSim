@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 userLLM hint generation — reflect on a rollout and produce coaching notes
 for a teacher prompt.
@@ -13,11 +27,11 @@ and directly actionable based on the available scoring information.
 
 import logging
 import re
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 from agents.userllm.helpers import (
-    TestCase,
     _STOPWORDS,
+    TestCase,
     _extract_choice_texts,
     _extract_intent,
     _extract_intent_adherence_fields,
@@ -34,13 +48,14 @@ logger = logging.getLogger(__name__)
 # Diagnostic helpers — compute exact facts about what went wrong
 # ---------------------------------------------------------------------------
 
-def _simple_content_tokens(text: str) -> Set[str]:
+
+def _simple_content_tokens(text: str) -> set[str]:
     """Lowercase alphanum tokens, stopword-filtered, length > 2. No regex dep."""
-    words = re.findall(r'\b[a-zA-Z0-9]+\b', (text or "").lower())
+    words = re.findall(r"\b[a-zA-Z0-9]+\b", (text or "").lower())
     return {w for w in words if w not in _STOPWORDS and len(w) > 2}
 
 
-def _intent_token_diagnosis(intent: str, output: str) -> Tuple[List[str], List[str], float]:
+def _intent_token_diagnosis(intent: str, output: str) -> tuple[list[str], list[str], float]:
     """
     Returns (missing_tokens, present_tokens, approx_overlap_ratio).
     missing_tokens: intent keywords NOT found in output → model should use these
@@ -57,7 +72,7 @@ def _intent_token_diagnosis(intent: str, output: str) -> Tuple[List[str], List[s
     return missing, present, ratio
 
 
-def _termination_diagnosis(row: Dict[str, Any], pred_endconversation: bool) -> str:
+def _termination_diagnosis(row: dict[str, Any], pred_endconversation: bool) -> str:
     """Exact rule-based diagnosis of termination_f1 failure."""
     raw = row.get("is_last_turn")
     if raw is None:
@@ -69,7 +84,7 @@ def _termination_diagnosis(row: Dict[str, Any], pred_endconversation: bool) -> s
     # Normalise to bool
     if isinstance(raw, bool):
         is_last = raw
-    elif isinstance(raw, (int, float)):
+    elif isinstance(raw, (int, float)):  # noqa: UP038
         is_last = bool(int(raw))
     elif isinstance(raw, str):
         is_last = raw.strip().lower() in ("true", "1", "yes", "y")
@@ -97,7 +112,7 @@ def _termination_diagnosis(row: Dict[str, Any], pred_endconversation: bool) -> s
         )
 
 
-def _role_adherence_diagnosis(choices: List[str], output: str) -> Tuple[List[str], str]:
+def _role_adherence_diagnosis(choices: list[str], output: str) -> tuple[list[str], str]:
     """
     Returns (detected_choices, diagnosis_str).
     detected_choices: choice texts the scorer found in the output.
@@ -128,11 +143,12 @@ def _role_adherence_diagnosis(choices: List[str], output: str) -> Tuple[List[str
 # Hint text builders (one per reward metric)
 # ---------------------------------------------------------------------------
 
+
 def _build_prism_hint(
     intent: str,
     output: str,
-    sub_scores: Dict[str, Any],
-    row: Dict[str, Any],
+    sub_scores: dict[str, Any],
+    row: dict[str, Any],
 ) -> str:
     """Forward-looking imperative hints for the prism metric. One bullet per failing sub-score."""
     intent_decomp = float(sub_scores.get("userllm/intent_decomposition") or 0.0)
@@ -146,9 +162,7 @@ def _build_prism_hint(
         raw = row.get("is_last_turn")
         is_last = _to_optional_bool(raw)
         if is_last is True and not pred_endconversation:
-            bullets.append(
-                "CRITICAL: Your response for this turn must be ONLY <|endconversation|> and nothing else."
-            )
+            bullets.append("CRITICAL: Your response for this turn must be ONLY <|endconversation|> and nothing else.")
         elif is_last is False and pred_endconversation:
             bullets.append(
                 "CRITICAL: Do NOT output <|endconversation|>. Your goal is not yet fully answered — write your next question."
@@ -172,7 +186,7 @@ def _build_prism_hint(
 
 def _build_role_adherence_hint(
     intent: str,
-    choices: List[str],
+    choices: list[str],
     output: str,
     reward: float,
 ) -> str:
@@ -200,7 +214,7 @@ def _build_intent_adherence_hint(
     return (
         "Re-ask your original question directly — do NOT acknowledge, thank, or follow the AI's suggestion. "
         "Even 'That said...' or 'While that helps...' counts as accepting. "
-        f"Just re-state: \"{question}\""
+        f'Just re-state: "{question}"'
     )
 
 
@@ -208,11 +222,12 @@ def _build_intent_adherence_hint(
 # Main hint generation
 # ---------------------------------------------------------------------------
 
+
 async def generate_hint(
-    row: Dict[str, Any],
+    row: dict[str, Any],
     output: str,
     reward: float,
-    sub_scores: Dict[str, Any],
+    sub_scores: dict[str, Any],
 ) -> str:
     """Generate a coaching hint from a completed userLLM rollout.
 
@@ -268,7 +283,8 @@ async def generate_hint(
 # Teacher prompt builder
 # ---------------------------------------------------------------------------
 
-def get_teacher_prompt(row: Dict[str, Any], hint: str) -> str:
+
+def get_teacher_prompt(row: dict[str, Any], hint: str) -> str:
     """Build the agent input prompt augmented with hint coaching notes.
 
     Includes reference material when available:
@@ -281,6 +297,7 @@ def get_teacher_prompt(row: Dict[str, Any], hint: str) -> str:
     hint: The coaching brief from generate_hint().
     """
     from agents.utils import truncate_text_left
+
     tc = TestCase(id="teacher", data=row)
     intent = _extract_intent(tc)
     conversation_history = truncate_text_left(str(row.get("conversation_history") or ""), 2000)

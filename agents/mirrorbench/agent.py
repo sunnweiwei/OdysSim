@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 MirrorBench agent for Harmony evaluation.
 
@@ -8,19 +22,28 @@ conversations. Two phases: (1) Simulation - generate proxy user turns,
 Based on: https://arxiv.org/abs/2601.08118
 """
 
+import asyncio
 import copy
 import hashlib
-import asyncio
 import json
 import logging
-import random
 import re
 import uuid
 from collections import Counter
 from math import comb, sqrt
 from statistics import NormalDist, mean, stdev
+
 from pydantic import BaseModel
-from agents.utils import Agent, call_openai, call_openai_parse, process_post_chat, split_think, get_judge_model, get_judge_reasoning
+
+from agents.utils import (
+    Agent,
+    call_openai,
+    call_openai_parse,
+    get_judge_model,
+    get_judge_reasoning,
+    process_post_chat,
+    split_think,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +52,11 @@ logger = logging.getLogger(__name__)
 # Tokenization (from mirrorbench_core/metrics/util/text.py)
 # ---------------------------------------------------------------------------
 
+
 def tokenize(text: str, model: str = "gpt-4o") -> list[int]:
     """Tokenize text using tiktoken for the specified model."""
     import tiktoken
+
     encoding = tiktoken.encoding_for_model(model)
     return encoding.encode(text)
 
@@ -39,6 +64,7 @@ def tokenize(text: str, model: str = "gpt-4o") -> list[int]:
 # ---------------------------------------------------------------------------
 # Lexical metrics (from mirrorbench_core/metrics/lexical/)
 # ---------------------------------------------------------------------------
+
 
 def compute_mattr(tokens: list[int], window: int = 50) -> float:
     """Compute Moving-Average Type-Token Ratio."""
@@ -104,12 +130,36 @@ def compute_yules_k(tokens: list[int]) -> float:
 # ---------------------------------------------------------------------------
 
 _T_CRITICAL_95 = {
-    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571,
-    6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
-    11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131,
-    16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086,
-    21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060,
-    26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042,
+    1: 12.706,
+    2: 4.303,
+    3: 3.182,
+    4: 2.776,
+    5: 2.571,
+    6: 2.447,
+    7: 2.365,
+    8: 2.306,
+    9: 2.262,
+    10: 2.228,
+    11: 2.201,
+    12: 2.179,
+    13: 2.160,
+    14: 2.145,
+    15: 2.131,
+    16: 2.120,
+    17: 2.110,
+    18: 2.101,
+    19: 2.093,
+    20: 2.086,
+    21: 2.080,
+    22: 2.074,
+    23: 2.069,
+    24: 2.064,
+    25: 2.060,
+    26: 2.056,
+    27: 2.052,
+    28: 2.048,
+    29: 2.045,
+    30: 2.042,
 }
 
 
@@ -160,6 +210,7 @@ def mean_stdev_ci(
 # Calibration (from mirrorbench calibration module)
 # ---------------------------------------------------------------------------
 
+
 def derive_anchors(
     hh_scores: list[float],
     pp_scores: list[float],
@@ -184,6 +235,7 @@ def apply_linear_calibration(
 # JSON extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_json(text: str) -> dict | None:
     """Extract JSON object from LLM response text.
 
@@ -193,7 +245,7 @@ def extract_json(text: str) -> dict | None:
     if not text:
         return None
     # Strip markdown code fences (```json ... ``` or ``` ... ```)
-    fence_match = re.search(r'```(?:json)?\s*([{].*?[}])\s*```', text, re.DOTALL)
+    fence_match = re.search(r"```(?:json)?\s*([{].*?[}])\s*```", text, re.DOTALL)
     if fence_match:
         text = fence_match.group(1)
     try:
@@ -220,6 +272,7 @@ def extract_json(text: str) -> dict | None:
 # ---------------------------------------------------------------------------
 # Prompt templates (from mirrorbench_core/metrics/judge/prompts.py)
 # ---------------------------------------------------------------------------
+
 
 def format_few_shot_examples(examples: list[dict] | None) -> str:
     """Format few-shot examples with instructional context."""
@@ -347,6 +400,7 @@ COIN_FLIP_THRESHOLD = 0.5
 # User proxy prompts (for simulation)
 # ---------------------------------------------------------------------------
 
+
 def build_user_proxy_system_prompt(
     task_description: str | None = None,
     domain: str | None = None,
@@ -365,7 +419,9 @@ def build_user_proxy_system_prompt(
     if persona:
         lines.append(f"Persona hints: {persona}.")
     if not any([task_description, domain, persona]):
-        lines.append("No additional dataset metadata provided. Respond naturally and plausibly based on the ongoing conversation.")
+        lines.append(
+            "No additional dataset metadata provided. Respond naturally and plausibly based on the ongoing conversation."
+        )
     lines.append(
         "Match the length, tone, and specificity of real user utterances. If you are unsure, "
         "respond naturally based on the assistant's previous messages like how a real human would. "
@@ -405,6 +461,7 @@ as the assistant in this conversation.""".strip()
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def format_conversation(turns: list[dict]) -> str:
     """Format a list of turns into a readable conversation string."""
     lines = []
@@ -431,13 +488,13 @@ def rng_seed(*, metric_name: str, episode_id: str, base_seed: int, salt: str) ->
 # Evaluation: judge metrics (with num_judge_samples support)
 # ---------------------------------------------------------------------------
 
+
 class GTEvalResult(BaseModel):
     reasoning: str
     score: float
 
 
-async def run_gteval(real_conv_str, proxy_conv_str, client,
-                     num_judge_samples=1):
+async def run_gteval(real_conv_str, proxy_conv_str, client, num_judge_samples=1):
     """Run GTEval metric with optional multi-sampling.
 
     Returns (score, result_dict) where result_dict is the first parsed result
@@ -450,7 +507,9 @@ async def run_gteval(real_conv_str, proxy_conv_str, client,
     messages = [{"role": "user", "content": prompt}]
 
     async def _single_sample():
-        result = await call_openai_parse(messages, GTEvalResult, model=get_judge_model('gpt-5.4-nano'), reasoning_effort=get_judge_reasoning('low'))
+        result = await call_openai_parse(
+            messages, GTEvalResult, model=get_judge_model("gpt-5.4-nano"), reasoning_effort=get_judge_reasoning("low")
+        )
         if result is not None:
             score = max(0.0, min(1.0, float(result["score"])))
             return score, result
@@ -461,9 +520,11 @@ async def run_gteval(real_conv_str, proxy_conv_str, client,
     first_result = next((r for _, r in raw_results if r is not None), None)
     return (mean(scores) if scores else 0.5), first_result
 
+
 # ---------------------------------------------------------------------------
 # agent_loop: Harmony interface
 # ---------------------------------------------------------------------------
+
 
 async def agent_loop(data, context) -> dict:
     """
@@ -497,7 +558,7 @@ async def agent_loop(data, context) -> dict:
             "case_id": str,
         }
     """
-    info = data['extra_info']
+    info = data["extra_info"]
     # enabled_metrics = ["gteval", "pairwise", "rnr", "ctr"]
     enabled_metrics = ["gteval"]
 
@@ -520,8 +581,10 @@ async def agent_loop(data, context) -> dict:
         persona=metadata.get("persona"),
     )
 
-    chat = [{"role": "system", "content": user_system_prompt},
-            {"role": "user", "content": "Generate the next user message."}]
+    chat = [
+        {"role": "system", "content": user_system_prompt},
+        {"role": "user", "content": "Generate the next user message."},
+    ]
     user_agent = Agent(context.llm_client, chat, context.tokenizer, context.config, prompt_turn=2)
 
     real_conversation_str = format_conversation(real_turns)
@@ -550,7 +613,7 @@ async def agent_loop(data, context) -> dict:
         elif role == "assistant":
             if use_openai:
                 assistant_messages = [{"role": "system", "content": assistant_system_prompt}] + simulation_turns
-                response = await call_openai(assistant_messages, model='gpt-5.4-nano', reasoning_effort='none')
+                response = await call_openai(assistant_messages, model="gpt-5.4-nano", reasoning_effort="none")
                 observation = response
                 if response:
                     simulation_turns.append({"role": "assistant", "content": response})
@@ -559,11 +622,11 @@ async def agent_loop(data, context) -> dict:
                 observation = original
                 if original:
                     simulation_turns.append({"role": "assistant", "content": original})
-            user_agent.append({'role': 'user', 'content': f"AI: {observation}\n\nGenerate the next user message."})
+            user_agent.append({"role": "user", "content": f"AI: {observation}\n\nGenerate the next user message."})
 
     # Phase 2: Evaluation
     scores = {}
-    control_scores = {}
+    control_scores = {}  # noqa: F841
 
     # Lexical metrics
     human_user_text = " ".join(t["content"] for t in real_turns if t.get("role") == "user")
@@ -597,7 +660,7 @@ async def agent_loop(data, context) -> dict:
     if "gteval" in enabled_metrics:
         coros["gteval"] = run_gteval(real_conv_str, proxy_conv_str, client, num_judge_samples=1)
 
-    results = dict(zip(coros.keys(), await asyncio.gather(*coros.values(), return_exceptions=True)))
+    results = dict(zip(coros.keys(), await asyncio.gather(*coros.values(), return_exceptions=True), strict=False))
 
     gteval_result = None
     if "gteval" in results and not isinstance(results["gteval"], Exception):
@@ -621,41 +684,43 @@ async def agent_loop(data, context) -> dict:
     hdd_gap = abs(proxy_hdd - human_hdd)
     yules_k_gap = abs(proxy_yules_k - human_yules_k)
 
-    output = await user_agent.get_agent_output(reward, extra_info={
-        "mirrorbench/reward": reward,
-        "mirrorbench/num_turn": len(user_agent.chat),
-        "mirrorbench/gteval": scores.get("gteval", 0.0),
-        "mirrorbench/mattr_gap": mattr_gap,
-        "mirrorbench/hdd_gap": hdd_gap,
-        "mirrorbench/yules_k_gap": yules_k_gap,
-        "all/score": reward,
-        "all/score_v1": reward,
-    })
+    output = await user_agent.get_agent_output(
+        reward,
+        extra_info={
+            "mirrorbench/reward": reward,
+            "mirrorbench/num_turn": len(user_agent.chat),
+            "mirrorbench/gteval": scores.get("gteval", 0.0),
+            "mirrorbench/mattr_gap": mattr_gap,
+            "mirrorbench/hdd_gap": hdd_gap,
+            "mirrorbench/yules_k_gap": yules_k_gap,
+            "all/score": reward,
+            "all/score_v1": reward,
+        },
+    )
 
     # ===========================================================================
     # Hint + second attempt
     # ===========================================================================
     extra = {}
     hint = None
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and reward < 0.4):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and reward < 0.4:
         from agents.mirrorbench.hint import generate_hint
+
         hint = await generate_hint(gteval_result)
         if hint:
-            extra['hint'] = hint
+            extra["hint"] = hint
 
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and context.is_train
-            and hint):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train and hint:
         from agents.mirrorbench.hint_agent import agent_loop as hint_agent_loop
-        data['extra_info']['hint'] = hint
-        data['extra_info']['old_reward'] = reward
+
+        data["extra_info"]["hint"] = hint
+        data["extra_info"]["old_reward"] = reward
 
         hint_agent_output = await hint_agent_loop(data, context)
         copy_agent_output = copy.deepcopy(hint_agent_output)
         copy_agent_output.prompt_ids = copy.deepcopy(output.prompt_ids)
         copy_agent_output.extra_fields["gen_uid"] = str(uuid.uuid4())
-        hint_agent_output.extra_fields["agent_role"] = 'hint_agent'
+        hint_agent_output.extra_fields["agent_role"] = "hint_agent"
         output = [output, copy_agent_output, hint_agent_output]
         # output = [output, copy_agent_output]
     # ===========================================================================
@@ -667,6 +732,7 @@ async def agent_loop(data, context) -> dict:
 # ---------------------------------------------------------------------------
 # Batch aggregation (called from eval_llm.py after all episodes)
 # ---------------------------------------------------------------------------
+
 
 def compute_mirrorbench_aggregates(results: list[dict]) -> dict:
     """
@@ -790,8 +856,13 @@ def compute_mirrorbench_aggregates(results: list[dict]) -> dict:
 
     # Overall average: judge metrics + z-scored lexical metrics
     key_metrics = [
-        "gteval", "pairwise_raw", "rnr", "ctr",
-        "mattr_zscore", "hdd_zscore", "yules_k_zscore",
+        "gteval",
+        "pairwise_raw",
+        "rnr",
+        "ctr",
+        "mattr_zscore",
+        "hdd_zscore",
+        "yules_k_zscore",
     ]
     available = [aggregate[k] for k in key_metrics if k in aggregate]
     if available:

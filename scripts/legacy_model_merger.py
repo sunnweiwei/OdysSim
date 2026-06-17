@@ -44,7 +44,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 import torch
@@ -116,16 +116,16 @@ class BaseModelMerger(ABC):
         # Handle case where architectures might be None or empty
         if self.model_config.architectures is None or len(self.model_config.architectures) == 0:
             # Try to infer from model_type if architectures is missing
-            model_type = getattr(self.model_config, 'model_type', '').lower()
-            if 'vision' in model_type or 'vl' in model_type:
+            model_type = getattr(self.model_config, "model_type", "").lower()
+            if "vision" in model_type or "vl" in model_type:
                 return AutoModelForVision2Seq
-            elif 'causal' in model_type or 'gpt' in model_type or 'llama' in model_type or 'qwen' in model_type:
+            elif "causal" in model_type or "gpt" in model_type or "llama" in model_type or "qwen" in model_type:
                 return AutoModelForCausalLM
             else:
                 raise NotImplementedError(
                     f"Cannot determine model class: architectures is None and model_type '{model_type}' is not recognized"
                 )
-        
+
         architecture = self.model_config.architectures[0]
         if "ForTokenClassification" in architecture:
             return AutoModelForTokenClassification
@@ -515,7 +515,7 @@ class MegatronModelMerger(BaseModelMerger):
         config: PretrainedConfig,
         tp_size: int,
         is_value_model: bool = False,
-    ) -> Union[torch.Tensor, list[torch.Tensor]]:
+    ) -> torch.Tensor | list[torch.Tensor]:
         if "linear_fc1.weight" in key:
             # if the tensor is gate and proj
             gate_lst = []
@@ -644,7 +644,7 @@ class MegatronModelMerger(BaseModelMerger):
                         state_dict[hf_name] = merged
                     elif len(merged) == 3:
                         # split qkv
-                        for n, d in zip(["q", "k", "v"], merged):
+                        for n, d in zip(["q", "k", "v"], merged, strict=False):
                             state_dict[hf_name.replace("qkv", n)] = d
                     elif len(merged) == 2:
                         # split gate up

@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 DOC_SIMULATOR_SYSTEM_PROMPT = """You are an AI assistant tasked with role-playing as a user seeking help from an AI writing assistant to create a document. Your primary goal is to accurately simulate a user with the specific characteristics defined in the profile below. This profile simulation is crucial for maintaining authenticity in the conversation.
 
 # Writing Objectives
@@ -43,8 +57,6 @@ Output `terminate conversation` if any is true:
 Stay in character as the specified user throughout your output, following the guidelines and user profile carefully."""
 
 
-
-
 DOC_SIMULATOR_INITIAL_USER_MESSAGE_TEMPLATE = """Document Type:
 {document_type}
 
@@ -58,16 +70,12 @@ Conversation starts now. As the user, send your first message to the writing ass
 Output format: Message: [your initial message]"""
 
 
-
-
 ASSISTANT_SYSTEM_PROMPT_DOC = (
     "You are a helpful AI writing assistant. Your goal is to collaborate with the user to create "
     "and refine a document that matches their goals, factual background, preferences, and style. "
     "Be responsive to feedback, revise drafts faithfully, and help the user iteratively improve the document. "
     "Keep the document concise: the final document must be between 100 and 500 words."
 )
-
-
 
 
 ASSISTANT_FIRST_TURN_USER_TEMPLATE_DOC = (
@@ -77,8 +85,6 @@ ASSISTANT_FIRST_TURN_USER_TEMPLATE_DOC = (
     "Pre-writing Materials:\n{pre_writing_materials}\n\n"
     "{message}"
 )
-
-
 
 
 TERMINATION_PROMPT_TEMPLATE_DOC = """You are given a sequence of **User Messages** from a **document creation** conversation, along with the **Document Type** and **Document Goal**. The user is collaborating with an AI writing assistant to produce and refine a document. Your task is to determine the optimal point to end the conversation based on the user's progress and satisfaction.
@@ -114,8 +120,6 @@ Notes:
 2. End the conversation if the user explicitly indicates no further changes are needed (Criterion 1) or if it becomes clear that no productive progress is happening (Criterion 2)."""
 
 
-
-
 DOC_SIMULATOR_WRITING_STYLE_FEATURES_TEXT = """- Frequency of Grammatical Errors: How often does the user break basic grammar rules?
 - Sentence Complexity: Does the user primarily use simple sentences, or do they also use compound and complex structures?
 - Spelling Consistency: Does the user often misspell words or make typos?
@@ -133,8 +137,6 @@ DOC_SIMULATOR_WRITING_STYLE_FEATURES_TEXT = """- Frequency of Grammatical Errors
 - Sentence Initiation Variety: Does the user start sentences in varied ways, or do they follow a repetitive pattern?"""
 
 
-
-
 DOC_SIMULATOR_INTERACTION_STYLE_FEATURES_TEXT = """- Message Length: What is the range of the length of the user's queries?
 - Answer Thoroughness: When responding to questions, does the user tend to give detailed, complete responses or brief, minimal answers?
 - Information and Clarification Seeking: How frequently does the user ask for examples, additional explanations, or factual clarification?
@@ -148,8 +150,6 @@ DOC_SIMULATOR_INTERACTION_STYLE_FEATURES_TEXT = """- Message Length: What is the
 - Specificity and Goal Orientation in Feedback: How specific and goal-oriented are the user's feedback and modification requests?
 - Balance of Instruction and Inquiry: Does the user balance between giving specific instructions and asking for suggestions or ideas from the AI?
 - Structured and Methodical Feedback: Does the user follow a highly structured and methodical approach in their feedback?"""
-
-
 
 
 EVAL_SIMULATOR_WRITING_STYLE_LIKERT_PROMPT_TEMPLATE_DOC = """You are an expert in analyzing document creation conversations. Your task is to evaluate how similar a simulated user's writing style is to a real user's writing style in their queries to an AI writing assistant.
@@ -198,8 +198,6 @@ Results (JSON):
 - Focus on the user queries only, not the writing assistant's responses."""
 
 
-
-
 EVAL_SIMULATOR_INTERACTION_STYLE_LIKERT_PROMPT_TEMPLATE_DOC = """You are an expert in analyzing document creation conversations. Your task is to evaluate how similar a simulated user's interaction style is to a real user's interaction style in their conversation with an AI writing assistant.
 
 # Input
@@ -244,8 +242,6 @@ Rate the overall interaction style similarity on a scale of 1-5:
 # Note
 - Focus on user interaction style, not writing assistant quality.
 - Your goal is to determine how closely the simulated user matches the real user in interaction style."""
-
-
 
 
 EVAL_SIMULATOR_TURING_TEST_PROMPT_TEMPLATE_DOC = """You are an expert in conversation analysis and AI detection. You will compare two document creation conversations, each featuring a user interacting with an AI writing assistant. One user is a real human and the other is an AI user simulator. Your goal is to determine which conversation features the human user and provide a single confidence rating for your decision.
@@ -302,8 +298,6 @@ Provide your decision using the following JSON format:
 """
 
 
-
-
 EVAL_SIMULATOR_ATTRIBUTE_FULFILLMENT_PROMPT_TEMPLATE_DOC = """You are an expert in communication analysis and AI interaction evaluation. Your task is to analyze the user messages and determine whether they match the provided feature description.
 
 # Feature Description
@@ -357,8 +351,6 @@ Return a JSON array where each element corresponds to one feature in the same or
 }}"""
 
 
-
-
 EVAL_ASSISTANT_INTERACTION_RATING_PROMPT_TEMPLATE_DOC = """You are an expert in writing collaboration and AI writing assistant evaluation. Your task is to analyze a conversation between a user and an AI writing assistant about creating a document, then rate the AI writing assistant's performance on a scale of 1 to 10 based on the criteria below.
 
 # Input
@@ -397,8 +389,6 @@ The user is highly satisfied with clarity, depth, and relevance throughout the c
 * Strengths: [List the key strengths demonstrated by the AI writing assistant in the conversation]
 * Areas for Improvement: [Identify any issues or weaknesses in the assistant's performance]
 * Rating: [Provide a single numeric rating between 1 and 10]"""
-
-
 
 
 EVAL_DOCUMENT_EXTRACTION_PROMPT_TEMPLATE_DOC = """You are a document finalizer. Your task is to extract the final version of a document from a conversation between a user and an AI writing assistant.

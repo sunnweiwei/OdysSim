@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Sotopia hint agent — measures improvement from reflection hints.
 
@@ -12,24 +26,24 @@ This lets us quantify how much the hint actually helps before using it for
 context distillation (KL training).
 """
 
-import re
-import logging
 import asyncio
+import logging
+import re
 import time
 
-from agents.utils import Agent, process_post_chat, remove_think
-from agents.sotopia.hint import generate_hint, get_teacher_character_prompt
 from agents.sotopia.agent import (
+    DIMENSION_RANGES,
+    DIMENSIONS,
     SimpleAgent,
-    get_character_prompt,
-    parse_action,
     action_to_natural_language,
     evaluate_episode_single,
+    get_character_prompt,
     hack_judge,
-    DIMENSIONS,
-    DIMENSION_RANGES,
     normalize_score,
+    parse_action,
 )
+from agents.sotopia.hint import generate_hint, get_teacher_character_prompt
+from agents.utils import Agent, remove_think
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +51,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Rollout parsing
 # ---------------------------------------------------------------------------
+
 
 def parse_rollout_conversation(rollout: dict, actor_name: str, partner_name: str) -> list:
     """Reconstruct a conversation_log list from a saved rollout's output field.
@@ -51,7 +66,7 @@ def parse_rollout_conversation(rollout: dict, actor_name: str, partner_name: str
         return []
 
     # Split on role markers — yields ['', role, content, role, content, ...]
-    segments = re.split(r'(assistant|user)\n', output_text)
+    segments = re.split(r"(assistant|user)\n", output_text)
 
     conversation_log = []
     turn = 0
@@ -63,24 +78,28 @@ def parse_rollout_conversation(rollout: dict, actor_name: str, partner_name: str
             clean = remove_think(content.strip(), remove_unclosed=True)
             action = parse_action(clean)
             nl = action_to_natural_language(actor_name, action)
-            conversation_log.append({
-                "turn": turn + 1,
-                "agent": actor_name,
-                "action_type": action["action_type"],
-                "argument": action["argument"],
-                "natural_language": nl,
-            })
+            conversation_log.append(
+                {
+                    "turn": turn + 1,
+                    "agent": actor_name,
+                    "action_type": action["action_type"],
+                    "argument": action["argument"],
+                    "natural_language": nl,
+                }
+            )
         else:
             # Partner turn — already natural language
             content = content.strip()
             if content:
-                conversation_log.append({
-                    "turn": turn + 1,
-                    "agent": partner_name,
-                    "action_type": "speak",
-                    "argument": content,
-                    "natural_language": content,
-                })
+                conversation_log.append(
+                    {
+                        "turn": turn + 1,
+                        "agent": partner_name,
+                        "action_type": "speak",
+                        "argument": content,
+                        "natural_language": content,
+                    }
+                )
         turn += 1
 
     return conversation_log
@@ -92,7 +111,7 @@ def extract_old_scores(rollout: dict) -> dict:
     for dim in DIMENSIONS:
         raw = rollout.get(f"sotopia/{dim}", 0)
         lo, hi = DIMENSION_RANGES[dim]
-        raw = max(lo, min(hi, int(raw) if isinstance(raw, (int, float)) else (lo + hi) // 2))
+        raw = max(lo, min(hi, int(raw) if isinstance(raw, (int, float)) else (lo + hi) // 2))  # noqa: UP038
         actor_scores[dim] = {"raw": raw, "normalized": normalize_score(raw, dim)}
     return actor_scores
 
@@ -100,6 +119,7 @@ def extract_old_scores(rollout: dict) -> dict:
 # ---------------------------------------------------------------------------
 # agent_loop: Harmony interface
 # ---------------------------------------------------------------------------
+
 
 async def agent_loop(data, context):
     """
@@ -120,11 +140,13 @@ async def agent_loop(data, context):
     agent2_goal = row.get("agent2_goal", "")
     relationship = row.get("relationship", "")
     # Replace Agent1/Agent2 placeholders in scenario with actual names
-    scenario = (row["scenario"]
-                .replace("Agent1", agent1_name)
-                .replace("Agent2", agent2_name)
-                .replace("agent1", agent1_name)
-                .replace("agent2", agent2_name))
+    scenario = (
+        row["scenario"]
+        .replace("Agent1", agent1_name)
+        .replace("Agent2", agent2_name)
+        .replace("agent1", agent1_name)
+        .replace("agent2", agent2_name)
+    )
     eval_position = row.get("eval_position", "agent1")
 
     if eval_position == "agent1":
@@ -176,9 +198,12 @@ async def agent_loop(data, context):
 
     actor_agent = Agent(context.llm_client, teacher_chat, context.tokenizer, context.config, prompt_turn=2)
     partner_chat = [
-        {"role": "system",
-         "content": get_character_prompt(partner_name, partner_background, scenario, partner_goal, actor_name,
-                                         relationship)},
+        {
+            "role": "system",
+            "content": get_character_prompt(
+                partner_name, partner_background, scenario, partner_goal, actor_name, relationship
+            ),
+        },
         {"role": "user", "content": "=== Conversation Start ==="},
     ]
     partner_agent = SimpleAgent(partner_chat)
@@ -201,13 +226,15 @@ async def agent_loop(data, context):
 
         action = parse_action(response)
         action_nl = action_to_natural_language(current_name, action)
-        conversation_log.append({
-            "turn": turn + 1,
-            "agent": current_name,
-            "action_type": action["action_type"],
-            "argument": action["argument"],
-            "natural_language": action_nl,
-        })
+        conversation_log.append(
+            {
+                "turn": turn + 1,
+                "agent": current_name,
+                "action_type": action["action_type"],
+                "argument": action["argument"],
+                "natural_language": action_nl,
+            }
+        )
 
         other_agent.append({"role": "user", "content": action_nl})
 

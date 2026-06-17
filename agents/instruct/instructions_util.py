@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Copyright 2025 Allen Institute for AI.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +34,7 @@ import re
 
 try:
     import nltk
+
     _NLTK_AVAILABLE = True
 except ImportError:
     nltk = None
@@ -1553,25 +1568,162 @@ WORD_LIST = [
     "apartment",
 ]  # pylint: disable=line-too-long
 
-_STOPWORDS = frozenset([
-    "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your",
-    "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she",
-    "her", "hers", "herself", "it", "its", "itself", "they", "them", "their",
-    "theirs", "themselves", "what", "which", "who", "whom", "this", "that",
-    "these", "those", "am", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an",
-    "the", "and", "but", "if", "or", "because", "as", "until", "while", "of",
-    "at", "by", "for", "with", "about", "against", "between", "into", "through",
-    "during", "before", "after", "above", "below", "to", "from", "up", "down",
-    "in", "out", "on", "off", "over", "under", "again", "further", "then",
-    "once", "here", "there", "when", "where", "why", "how", "all", "both",
-    "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not",
-    "only", "own", "same", "so", "than", "too", "very", "s", "t", "can",
-    "will", "just", "don", "should", "now", "d", "ll", "m", "o", "re", "ve",
-    "y", "ain", "aren", "couldn", "didn", "doesn", "hadn", "hasn", "haven",
-    "isn", "ma", "mightn", "mustn", "needn", "shan", "shouldn", "wasn",
-    "weren", "won", "wouldn",
-])
+_STOPWORDS = frozenset(
+    [
+        "i",
+        "me",
+        "my",
+        "myself",
+        "we",
+        "our",
+        "ours",
+        "ourselves",
+        "you",
+        "your",
+        "yours",
+        "yourself",
+        "yourselves",
+        "he",
+        "him",
+        "his",
+        "himself",
+        "she",
+        "her",
+        "hers",
+        "herself",
+        "it",
+        "its",
+        "itself",
+        "they",
+        "them",
+        "their",
+        "theirs",
+        "themselves",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "this",
+        "that",
+        "these",
+        "those",
+        "am",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "having",
+        "do",
+        "does",
+        "did",
+        "doing",
+        "a",
+        "an",
+        "the",
+        "and",
+        "but",
+        "if",
+        "or",
+        "because",
+        "as",
+        "until",
+        "while",
+        "of",
+        "at",
+        "by",
+        "for",
+        "with",
+        "about",
+        "against",
+        "between",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "to",
+        "from",
+        "up",
+        "down",
+        "in",
+        "out",
+        "on",
+        "off",
+        "over",
+        "under",
+        "again",
+        "further",
+        "then",
+        "once",
+        "here",
+        "there",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "both",
+        "each",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "no",
+        "nor",
+        "not",
+        "only",
+        "own",
+        "same",
+        "so",
+        "than",
+        "too",
+        "very",
+        "s",
+        "t",
+        "can",
+        "will",
+        "just",
+        "don",
+        "should",
+        "now",
+        "d",
+        "ll",
+        "m",
+        "o",
+        "re",
+        "ve",
+        "y",
+        "ain",
+        "aren",
+        "couldn",
+        "didn",
+        "doesn",
+        "hadn",
+        "hasn",
+        "haven",
+        "isn",
+        "ma",
+        "mightn",
+        "mustn",
+        "needn",
+        "shan",
+        "shouldn",
+        "wasn",
+        "weren",
+        "won",
+        "wouldn",
+    ]
+)
 
 
 def download_nltk_resources():
@@ -1601,17 +1753,17 @@ download_nltk_resources()
 def split_into_sentences(text):
     if _NLTK_AVAILABLE:
         return nltk.sent_tokenize(text)
-    return re.split(r'(?<=[.!?])\s+', text.strip())
+    return re.split(r"(?<=[.!?])\s+", text.strip())
 
 
 def count_words(text):
     if _NLTK_AVAILABLE:
         tokenizer = nltk.tokenize.RegexpTokenizer(r"\w+")
         return len(tokenizer.tokenize(text))
-    return len(re.findall(r'\w+', text))
+    return len(re.findall(r"\w+", text))
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _get_sentence_tokenizer():
     if _NLTK_AVAILABLE:
         return nltk.data.load("nltk:tokenizers/punkt/english.pickle")
@@ -1620,13 +1772,14 @@ def _get_sentence_tokenizer():
 
 def count_stopwords(text):
     if _NLTK_AVAILABLE:
-        stopwords = nltk.corpus.stopwords.words('english')
+        stopwords = nltk.corpus.stopwords.words("english")
         tokenizer = nltk.tokenize.RegexpTokenizer(r"\w+")
         tokens = tokenizer.tokenize(text)
     else:
         stopwords = _STOPWORDS
-        tokens = re.findall(r'\w+', text)
+        tokens = re.findall(r"\w+", text)
     return len([t for t in tokens if t.lower() in stopwords])
+
 
 def generate_keywords(num_keywords):
     """Randomly generates a few keywords."""

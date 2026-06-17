@@ -1,11 +1,26 @@
-import torch
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import re
+
+import torch
+
 from verl.utils.chat_template import extract_system_prompt_and_generation
 
 
 def _has_consecutive_tool_turns(messages: list) -> bool:
-    """True iff the conversation contains two adjacent `tool` messages.
-    """
+    """True iff the conversation contains two adjacent `tool` messages."""
     for i in range(len(messages) - 1):
         if messages[i].get("role") == "tool" and messages[i + 1].get("role") == "tool":
             return True
@@ -68,17 +83,14 @@ def _get_process_fn(data_source: str):
         # RM-R1 Distill SFT (reward-model judge training): system+user+assistant,
         # assistant = structured judge verdict with rubric/solution/quote tags.
         "rm_r1_sft": process_no_swap,
-
         # Additional ToM datasets (copied through from sft_processed/ into sft_processed_large/).
         "tom_characterllm": process_no_swap,
         "tom_grimulkan": process_no_swap,
         "tom_tominli": process_no_swap,
-
         # Education / tutoring dialogues — human tutor↔student, use no_swap.
         "education_dialogue": process_swap,
         "mathdial": process_swap,
         "studychat": process_swap,
-
         # ConvoKit back-generated SFT corpora (22 datasets).
         # Pipeline: system(back-gen persona) + user + assistant multi-turn; no role swap.
         "convokit_IDEA-NTHU-unintended-offense-tweets": process_swap,
@@ -115,8 +127,7 @@ def _get_process_fn(data_source: str):
         if key in data_source:
             return fn
     raise NotImplementedError(
-        f"No SFT data processor found for data_source={data_source!r}. "
-        "Register one in sft/sft_data.py."
+        f"No SFT data processor found for data_source={data_source!r}. Register one in sft/sft_data.py."
     )
 
 
@@ -149,6 +160,7 @@ def _get_messages(row: dict, config=None) -> list:
         messages = [m for m in messages if m.get("role") != "system"]
     return messages
 
+
 def truncate_text(text: str, n_words: int) -> str:
     matches = list(re.finditer(r"\S+", text))
     if len(matches) <= n_words:
@@ -160,19 +172,17 @@ def truncate_text(text: str, n_words: int) -> str:
 def _fold_head(messages, keep_last=20):
     """Keep the last `keep_last` non-system turns; fold earlier turns into a
     single context string prepended to the first kept turn's content."""
-    system_msgs = [m for m in messages if m.get('role') == 'system']
-    rest = [m for m in messages if m.get('role') != 'system']
+    system_msgs = [m for m in messages if m.get("role") == "system"]
+    rest = [m for m in messages if m.get("role") != "system"]
     if len(rest) <= keep_last:
         return messages
     head, tail = rest[:-keep_last], rest[-keep_last:]
-    context = '[Earlier conversation]\n' + '\n\n'.join(
-        f"{m.get('role')}: {m.get('content') or ''}" for m in head
-    )
+    context = "[Earlier conversation]\n" + "\n\n".join(f"{m.get('role')}: {m.get('content') or ''}" for m in head)
     # Force role='assistant' so after the flip in process_experiment this
     # context-carrying message becomes 'user' and stays out of the loss mask.
     first = dict(tail[0])
-    first['role'] = 'assistant'
-    first['content'] = context + '\n\n' + (first.get('content') or '')
+    first["role"] = "assistant"
+    first["content"] = context + "\n\n" + (first.get("content") or "")
     return system_msgs + [first] + tail[1:]
 
 
@@ -191,7 +201,7 @@ def _tokenize_chat(messages: list, tokenizer, generation_role: str = "assistant"
             tokenize=True,
             add_generation_prompt=False,
         )
-        turn_tokens = tokens[len(prev_tokens):]
+        turn_tokens = tokens[len(prev_tokens) :]
         prev_tokens = tokens
 
         full_ids.extend(turn_tokens)
@@ -216,9 +226,7 @@ def _tokenize_chat(messages: list, tokenizer, generation_role: str = "assistant"
 
     # Sanity check: per-turn concat must equal full-conversation template output,
     # except for the documented consecutive-tool case (see _has_consecutive_tool_turns).
-    full_tokens = tokenizer.apply_chat_template(
-        messages, tokenize=True, add_generation_prompt=False
-    )
+    full_tokens = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=False)
     if input_ids.tolist() != full_tokens:
         if _has_consecutive_tool_turns(messages):
             # Benign: VL-Instruct merges consecutive tool messages; per-turn
@@ -245,7 +253,7 @@ def _tokenize_chat(messages: list, tokenizer, generation_role: str = "assistant"
     response_mask = loss_mask[prompt_length:]
 
     if max_prompt_length is not None:
-        prompt_ids = prompt_ids[-int(max_prompt_length):]
+        prompt_ids = prompt_ids[-int(max_prompt_length) :]
     if max_response_length is not None:
         responses = responses[: int(max_response_length)]
         response_mask = response_mask[: int(max_response_length)]
@@ -262,6 +270,7 @@ def _tokenize_chat(messages: list, tokenizer, generation_role: str = "assistant"
 # ---------------------------------------------------------------------------
 # Per-task processors
 # ---------------------------------------------------------------------------
+
 
 def process_sotopia(row, tokenizer, config=None):
     messages = _get_messages(row)
@@ -287,6 +296,7 @@ def process_coser(row, tokenizer, config=None):
         else:
             corrected_messages.append(msg)
     return _tokenize_chat(corrected_messages, tokenizer, generation_role="assistant", config=config)
+
 
 def process_swap(row, tokenizer, config=None):
     """Chat-style datasets (wildchat, lmsys, oasst1/2, prism, alignx, nectar, hh_rlhf).
@@ -335,8 +345,11 @@ def process_dialogue(row, tokenizer, config=None):
         else:
             corrected_messages.append(msg)
     return _tokenize_chat(
-        corrected_messages, tokenizer,
-        generation_role="assistant", config=config, start_from=0,
+        corrected_messages,
+        tokenizer,
+        generation_role="assistant",
+        config=config,
+        start_from=0,
     )
 
 
@@ -363,8 +376,11 @@ def process_humanual(row, tokenizer, config=None):
         else:
             corrected_messages.append(msg)
     return _tokenize_chat(
-        corrected_messages, tokenizer,
-        generation_role="assistant", config=config, start_from=0,
+        corrected_messages,
+        tokenizer,
+        generation_role="assistant",
+        config=config,
+        start_from=0,
     )
 
 
@@ -390,8 +406,11 @@ def process_experiment(row, tokenizer, config=None):
         else:
             corrected_messages.append(msg)
     return _tokenize_chat(
-        corrected_messages, tokenizer,
-        generation_role="assistant", config=config, start_from=0,
+        corrected_messages,
+        tokenizer,
+        generation_role="assistant",
+        config=config,
+        start_from=0,
     )
 
 
@@ -400,7 +419,7 @@ def process_psych101(row, tokenizer, config=None):
     a context string prepended to the first kept assistant msg, then run the
     generic experiment flow."""
     folded = _fold_head(_get_messages(row, config=config), keep_last=20)
-    return process_experiment({**row, 'messages': folded}, tokenizer, config=config)
+    return process_experiment({**row, "messages": folded}, tokenizer, config=config)
 
 
 def process_no_swap(row, tokenizer, config=None):
@@ -424,8 +443,11 @@ def process_no_swap(row, tokenizer, config=None):
         corrected.append({"role": "system", "content": ""})
     corrected.extend(dict(m) for m in messages)
     return _tokenize_chat(
-        corrected, tokenizer,
-        generation_role="assistant", config=config, start_from=0,
+        corrected,
+        tokenizer,
+        generation_role="assistant",
+        config=config,
+        start_from=0,
     )
 
 

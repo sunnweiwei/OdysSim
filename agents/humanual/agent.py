@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 HUMANUAL agent for Harmony training and evaluation.
 
@@ -15,15 +29,14 @@ Code: https://github.com/zou-group/humanlm
 """
 
 import copy
-import logging
 import json
+import logging
 import re
-import uuid
 from collections import defaultdict
 
 from pydantic import BaseModel
 
-from agents.utils import Agent, call_openai_parse, process_post_chat, remove_think, get_judge_model, get_judge_reasoning
+from agents.utils import Agent, call_openai_parse, get_judge_model, get_judge_reasoning, process_post_chat, remove_think
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +206,7 @@ def _extract_field(text: str, field_name: str) -> str:
 # Structured judge output schema
 # ---------------------------------------------------------------------------
 
+
 class JudgeOutput(BaseModel):
     key_points: str
     thought: str
@@ -346,6 +360,7 @@ class ResponseSubScoreOutput(BaseModel):
 # Judge functions
 # ---------------------------------------------------------------------------
 
+
 async def judge_response(
     prompt_text: str,
     completion: str,
@@ -360,7 +375,7 @@ async def judge_response(
     )
     result = await call_openai_parse(
         [{"role": "user", "content": judge_prompt_text}],
-        model=get_judge_model('gpt-5-nano'),
+        model=get_judge_model("gpt-5-nano"),
         text_format=JudgeOutput,
         reasoning={"effort": get_judge_reasoning("low")},
     )
@@ -384,7 +399,7 @@ async def judge_response_subscores(
     )
     result = await call_openai_parse(
         [{"role": "user", "content": judge_prompt_text}],
-        model=get_judge_model('gpt-5.4-nano'),
+        model=get_judge_model("gpt-5.4-nano"),
         text_format=ResponseSubScoreOutput,
         reasoning={"effort": get_judge_reasoning("low")},
     )
@@ -493,6 +508,7 @@ def _lexical_f1(generated: str, reference: str) -> float:
     if not g or not r:
         return 0.0
     from collections import Counter
+
     cg, cr = Counter(g), Counter(r)
     overlap = sum((cg & cr).values())
     if overlap == 0:
@@ -544,7 +560,7 @@ async def judge_response_v3(
     )
     result = await call_openai_parse(
         [{"role": "user", "content": judge_prompt_text}],
-        model=get_judge_model('gpt-5.4-nano'),
+        model=get_judge_model("gpt-5.4-nano"),
         text_format=JudgeOutputV3,
         reasoning={"effort": get_judge_reasoning("low")},
     )
@@ -559,11 +575,10 @@ async def judge_response_v3(
     final_score = float(max(0.0, min(1.0, judge_score * length_factor)))
 
     # Synthesize hint-compatible fields from per-dimension outputs.
-    key_points_text = "\n".join(
-        f"- {d}: {result[d]['thought']}" for d in _V3_DIMS
-    )
+    key_points_text = "\n".join(f"- {d}: {result[d]['thought']}" for d in _V3_DIMS)
     thought_text = (
-        f"Per-dimension scores: " + ", ".join(f"{d}={per_dim[d]:.2f}" for d in _V3_DIMS)
+        "Per-dimension scores: "
+        + ", ".join(f"{d}={per_dim[d]:.2f}" for d in _V3_DIMS)
         + f". judge_score={judge_score:.2f}, length_factor={length_factor:.2f}, "
         + f"lexical_f1={lexical_f1:.2f}, final={final_score:.2f}."
     )
@@ -584,6 +599,7 @@ async def judge_response_v3(
 # Agent loop
 # ---------------------------------------------------------------------------
 
+
 async def agent_loop(data: dict, context) -> dict:
     """
     HUMANUAL agent loop with state generation support.
@@ -600,9 +616,7 @@ async def agent_loop(data: dict, context) -> dict:
         try:
             prompt_parsed = json.loads(prompt_field)
             if isinstance(prompt_parsed, list):
-                prompt_text = "\n".join(
-                    m.get("content", "") for m in prompt_parsed if isinstance(m, dict)
-                )
+                prompt_text = "\n".join(m.get("content", "") for m in prompt_parsed if isinstance(m, dict))
             else:
                 prompt_text = prompt_field
         except (json.JSONDecodeError, TypeError):
@@ -612,8 +626,8 @@ async def agent_loop(data: dict, context) -> dict:
 
     persona = str(row.get("persona", ""))
     completion = str(row.get("completion", ""))
-    dataset = str(row.get("dataset", ""))
-    category = str(row.get("category", ""))
+    dataset = str(row.get("dataset", ""))  # noqa: F841
+    category = str(row.get("category", ""))  # noqa: F841
     task_id = str(row.get("id", ""))
 
     dimension = "response"
@@ -647,7 +661,7 @@ async def agent_loop(data: dict, context) -> dict:
         )
         result = await call_openai_parse(
             [{"role": "user", "content": judge_prompt_text}],
-            model=get_judge_model('gpt-5.4-nano'),
+            model=get_judge_model("gpt-5.4-nano"),
             text_format=JudgeOutput,
             reasoning={"effort": get_judge_reasoning("low")},
         )
@@ -661,11 +675,7 @@ async def agent_loop(data: dict, context) -> dict:
 
     reward = score
 
-    extra_info = {
-        "humanual/score": score,
-        "humanual/parse_success": result is not None,
-        "all/score": reward
-    }
+    extra_info = {"humanual/score": score, "humanual/parse_success": result is not None, "all/score": reward}
     if dimension == "response" and isinstance(result, dict):
         if "judge_score" in result:
             extra_info["humanual/judge_score"] = result["judge_score"]
@@ -685,30 +695,30 @@ async def agent_loop(data: dict, context) -> dict:
     # ===========================================================================
     extra = {}
     hint = None
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and reward < 1.0):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and reward < 1.0:
         from agents.humanual.hint import generate_hint
+
         hint = await generate_hint(
-            result, generated,
+            result,
+            generated,
             completion=completion,
             dimension=dimension,
             dimension_desc=STATE_DESCRIPTIONS.get(dimension, ""),
         )
         if hint:
-            extra['hint'] = hint
+            extra["hint"] = hint
 
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and context.is_train
-            and hint):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train and hint:
         from agents.humanual.hint_agent import agent_loop as hint_agent_loop
-        data['extra_info']['hint'] = hint
-        data['extra_info']['old_reward'] = reward
+
+        data["extra_info"]["hint"] = hint
+        data["extra_info"]["old_reward"] = reward
 
         hint_agent_output = await hint_agent_loop(data, context)
         copy_agent_output = copy.deepcopy(hint_agent_output)
         copy_agent_output.prompt_ids = copy.deepcopy(output.prompt_ids)
         # copy_agent_output.extra_fields["gen_uid"] = str(uuid.uuid4())
-        hint_agent_output.extra_fields["agent_role"] = 'hint_agent'
+        hint_agent_output.extra_fields["agent_role"] = "hint_agent"
         output = [output, copy_agent_output, hint_agent_output]
     # ===========================================================================
 
@@ -719,6 +729,7 @@ async def agent_loop(data: dict, context) -> dict:
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
+
 
 def compute_humanual_aggregates(results: list[dict]) -> dict:
     """Compute aggregate metrics from HUMANUAL evaluation results.

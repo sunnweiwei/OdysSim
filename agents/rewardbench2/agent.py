@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 RewardBench 2 agent for Harmony.
 
@@ -108,7 +122,7 @@ def _as_list(value: Any) -> list:
         return []
     if hasattr(value, "tolist"):
         value = value.tolist()
-    return list(value) if isinstance(value, (list, tuple)) else [value]
+    return list(value) if isinstance(value, (list, tuple)) else [value]  # noqa: UP038
 
 
 def deterministic_shuffle_indices(row_id: str, n: int) -> list[int]:
@@ -155,10 +169,12 @@ def parse_rating(text: str) -> int:
 def build_ranking_messages(row: dict) -> tuple[list[dict], dict[str, int], dict[int, str]]:
     candidates = _as_list(row.get("candidates"))
     if len(candidates) != 4:
-        raise ValueError(f"RewardBench2 non-Ties rows must have 4 candidates, got {len(candidates)} for id={row.get('id')}")
+        raise ValueError(
+            f"RewardBench2 non-Ties rows must have 4 candidates, got {len(candidates)} for id={row.get('id')}"
+        )
 
     shuffled_indices = deterministic_shuffle_indices(str(row.get("id", "")), len(candidates))
-    display_to_original = {letter: idx for letter, idx in zip(LETTER_OPTIONS, shuffled_indices)}
+    display_to_original = {letter: idx for letter, idx in zip(LETTER_OPTIONS, shuffled_indices, strict=False)}
     original_to_display = {idx: letter for letter, idx in display_to_original.items()}
     shuffled_candidates = [candidates[idx] for idx in shuffled_indices]
 

@@ -1,12 +1,29 @@
-from ..utils import  BaseEnv, RuntimeServiceError, extract_fn_call
-from ..tool_prompt import convert_tools_to_description, TOOL_PROMPT
-from openai import AsyncOpenAI
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import asyncio
 import os
+
+from openai import AsyncOpenAI
+
+from ..tool_prompt import TOOL_PROMPT, convert_tools_to_description
+from ..utils import BaseEnv, RuntimeServiceError, extract_fn_call
 
 
 class TauEnv(BaseEnv):
     """Tau environment client with automatic recovery via conversation replay."""
+
     def __init__(self, env_name, task_index):
         super().__init__(env_name=env_name, task_index=task_index)
 
@@ -14,16 +31,16 @@ class TauEnv(BaseEnv):
         """Get formatted system prompt from environment meta_info."""
         if not self.meta_info:
             ping_result = self.ping()
-            if ping_result['exists']:
-                self.meta_info = ping_result['meta_info']
+            if ping_result["exists"]:
+                self.meta_info = ping_result["meta_info"]
 
         if not self.meta_info:
             return ""
 
-        tools_info = self.meta_info.get('tools_info', [])
-        wiki = self.meta_info.get('wiki', '')
+        tools_info = self.meta_info.get("tools_info", [])
+        wiki = self.meta_info.get("wiki", "")
         tool_description = TOOL_PROMPT.format(description=convert_tools_to_description(tools_info))
-        return wiki + '\n\n' + tool_description
+        return wiki + "\n\n" + tool_description
 
 
 async def agent_loop(data, context):
@@ -36,13 +53,13 @@ async def agent_loop(data, context):
     try:
         await asyncio.to_thread(tau_env.initialize)
     except RuntimeServiceError as e:
-        raise f"⚠️ **Runtime Service Unavailable**\n\nThe tau-bench environment service is temporarily unavailable. Please try again in a moment.\n\nError: {e}"
+        raise f"⚠️ **Runtime Service Unavailable**\n\nThe tau-bench environment service is temporarily unavailable. Please try again in a moment.\n\nError: {e}"  # noqa: B904
 
     system_prompt = tau_env.get_system_prompt()
-    chat = [{'role': 'system', 'content': system_prompt}]
+    chat = [{"role": "system", "content": system_prompt}]
 
     user_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    user_system_prompt = f"""{tau_env.meta_info['instruction']}
+    user_system_prompt = f"""{tau_env.meta_info["instruction"]}
 
 Rules:
 - Just generate one line at a time to simulate the user's message.
@@ -52,62 +69,63 @@ Rules:
 - If transferring to a human, after the agent confirms the transfer is successful, you must generate '###STOP###' immediately to end the conversation with the agent.- Do not repeat the exact instruction in the conversation. Instead, use your own words to convey the same information.
 - Try to make the conversation as natural as possible, and stick to the personalities in the instruction."""
     user_history = [
-        {"role": "system", "content": user_system_prompt, },
+        {
+            "role": "system",
+            "content": user_system_prompt,
+        },
         {"role": "user", "content": "Hi! How can I help you today?"},
     ]
 
-    user_response = tau_env.meta_info['initial_question']
-    user_history.append({'role': 'assistant', 'content': user_response})
-    chat.append({'role': 'user', 'content': user_response})
-    print('User:', user_response)
+    user_response = tau_env.meta_info["initial_question"]
+    user_history.append({"role": "assistant", "content": user_response})
+    chat.append({"role": "user", "content": user_response})
+    print("User:", user_response)
 
     for iteration in range(100):
         # Check for cancellation before each API call
         response = await llm_client.responses.create(model=model, input=chat)
         content = response.output[-1].content[0].text
 
-        chat.append({'role': 'assistant', 'content': content})
+        chat.append({"role": "assistant", "content": content})
         fn_call = extract_fn_call(content)
         observation = None
 
         # Check if extract_fn_call returned a format error
-        if fn_call is not None and isinstance(fn_call, dict) and 'error' in fn_call:
-            observation = fn_call['error']
-            chat.append({'role': 'system', 'content': observation})
+        if fn_call is not None and isinstance(fn_call, dict) and "error" in fn_call:
+            observation = fn_call["error"]
+            chat.append({"role": "system", "content": observation})
             continue  # Let agent try again with correct format
 
         if fn_call is not None and isinstance(fn_call, list) and len(fn_call) > 0:
             try:
                 observation = ""
                 for fn in fn_call:
-                    observation += '\n\n' if len(observation) > 0 else ''
+                    observation += "\n\n" if len(observation) > 0 else ""
                     observation += await asyncio.to_thread(tau_env.step, fn, conversation=chat)
             except RuntimeServiceError as e:
-                raise f"\n\n⚠️ **Runtime Service Unavailable**\n\nCould not execute tool call. The environment service is temporarily unavailable. Please try again.\n\nError: {e}"
+                raise f"\n\n⚠️ **Runtime Service Unavailable**\n\nCould not execute tool call. The environment service is temporarily unavailable. Please try again.\n\nError: {e}"  # noqa: B904
             except Exception as e:
                 observation = f"Error executing tool: {e}"
 
         if observation is None:
             # Ask question, user simulator respond
-            print('AI:', ' '.join(content.split()))
-            user_history.append({'role': 'user', 'content': content})
-            user_response = await user_client.responses.create(model='gpt-5-mini', input=user_history)
+            print("AI:", " ".join(content.split()))
+            user_history.append({"role": "user", "content": content})
+            user_response = await user_client.responses.create(model="gpt-5-mini", input=user_history)
             user_response = user_response.output[-1].content[0].text
-            if '###STOP###' in user_response:
+            if "###STOP###" in user_response:
                 break
-            user_history.append({'role': 'assistant', 'content': user_response})
-            chat.append({'role': 'user', 'content': user_response})
-            print('User:', user_response)
+            user_history.append({"role": "assistant", "content": user_response})
+            chat.append({"role": "user", "content": user_response})
+            print("User:", user_response)
             continue
         else:
-            chat.append({'role': 'system', 'content': observation})
+            chat.append({"role": "system", "content": observation})
     reward = await asyncio.to_thread(tau_env.get_reward)
-    print('Reward:', reward)
+    print("Reward:", reward)
     return {
         "reward": reward,
         "chat": chat,
-
         # add any optional field
         "user_history": user_history,
     }
-

@@ -488,8 +488,8 @@ class AgentLoopWorkerBase:
         for i in range(len(batch)):
             trace_this_sample = i in traced_indices
             kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
-            kwargs['global_step'] = trajectory_info[i]['step']
-            kwargs['is_train'] = not trajectory_info[i]['validate']
+            kwargs["global_step"] = trajectory_info[i]["step"]
+            kwargs["is_train"] = not trajectory_info[i]["validate"]
             tasks.append(
                 asyncio.create_task(
                     _run_with_semaphore(
@@ -1039,7 +1039,9 @@ class AgentLoopManager:
                 timing[f"gen_breakdown/sample_{short}/max"] = np.max(vals)
                 timing[f"gen_breakdown/sample_{short}/min"] = np.min(vals)
 
-        print(f"[gen_breakdown] wake_up={t_wake - t0:.1f}s  agent_loop={t_agent - t_wake:.1f}s  sleep={t_sleep - t_agent:.1f}s  total={t_sleep - t0:.1f}s")
+        print(
+            f"[gen_breakdown] wake_up={t_wake - t0:.1f}s  agent_loop={t_agent - t_wake:.1f}s  sleep={t_sleep - t_agent:.1f}s  total={t_sleep - t0:.1f}s"
+        )
 
         output.meta_info = {"timing": timing, **outputs[0].meta_info}
         return output

@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 CoSER hint agent — measures improvement from reflection hints.
 
@@ -8,22 +22,23 @@ Runs a fresh simulation where all character agents receive:
 Returns new reward with reward_delta tracked in extra_info.
 """
 
-import asyncio
-import copy
 import json
 import logging
 import random
 import time
-import uuid
 
-from agents.utils import Agent, process_post_chat, remove_think, truncate_text
+from agents.coser.coser_agent import SimpleAgent, evaluate_simulation
 from agents.coser.hint import get_teacher_character_prompt
 from agents.coser.prompt import (
-    ENVIRONMENT, NSP,
-    get_environment_prompt, get_nsp_prompt,
-    remove_inner_thoughts, add_speaker_name, extract_nsp,
+    ENVIRONMENT,
+    NSP,
+    add_speaker_name,
+    extract_nsp,
+    get_environment_prompt,
+    get_nsp_prompt,
+    remove_inner_thoughts,
 )
-from agents.coser.coser_agent import SimpleAgent, evaluate_simulation
+from agents.utils import Agent, remove_think, truncate_text
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +98,12 @@ async def agent_loop(data: dict, context):
             agent.append(init_msg)
         else:
             motivation = next(
-                (c.get("motivation", "") or c.get("thought", "")
-                 for c in conversation["key_characters"] if c.get("name") == character), ""
+                (
+                    c.get("motivation", "") or c.get("thought", "")
+                    for c in conversation["key_characters"]
+                    if c.get("name") == character
+                ),
+                "",
             )
             system_prompt = get_teacher_character_prompt(
                 book_title=book_title,
@@ -94,15 +113,15 @@ async def agent_loop(data: dict, context):
                 scenario=truncate_text(conversation.get("scenario", ""), 1000),
                 motivation=truncate_text(motivation, 1000),
                 wo_thought=wo_thought,
-                other_character_profiles={
-                    k: truncate_text(v, 1000) for k, v in involved_character_profiles.items()
-                },
+                other_character_profiles={k: truncate_text(v, 1000) for k, v in involved_character_profiles.items()},
                 hint=hint,
             )
             agent = Agent(
                 context.llm_client,
                 [{"role": "system", "content": system_prompt}, init_msg],
-                context.tokenizer, context.config, prompt_turn=2,
+                context.tokenizer,
+                context.config,
+                prompt_turn=2,
             )
         character_agents[character] = agent
 
@@ -151,10 +170,9 @@ async def agent_loop(data: dict, context):
         elif nsp_parsed in speaking_characters_w_env and nsp_parsed != current_speaker:
             current_speaker = nsp_parsed
         else:
-            candidates = (
-                (set(major_characters + [ENVIRONMENT]) - {current_speaker})
-                or set(speaking_characters_w_env) - {current_speaker}
-            )
+            candidates = (set(major_characters + [ENVIRONMENT]) - {current_speaker}) or set(
+                speaking_characters_w_env
+            ) - {current_speaker}
             current_speaker = random.choice(list(candidates))
             nsp_agent.messages[-1]["content"] = nsp_parsed
             nsp_agent.append({"role": "user", "content": nsp_agent.messages[0]["content"]})
@@ -163,7 +181,9 @@ async def agent_loop(data: dict, context):
     # Evaluate
     _eval_start = time.monotonic()
     new_reward, new_eval_result, _ = await evaluate_simulation(
-        agent_conversations, circumstance, involved_character_profiles,
+        agent_conversations,
+        circumstance,
+        involved_character_profiles,
         continue_from=continue_from,
         structured_output=True,
     )

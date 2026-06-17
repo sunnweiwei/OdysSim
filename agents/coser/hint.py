@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Hint generation for the CoSER agent.
 
@@ -15,8 +29,9 @@ Key differences from Sotopia:
 
 import asyncio
 import logging
+
+from agents.coser.prompt import DIMENSIONS, ENVIRONMENT, remove_inner_thoughts
 from agents.utils import call_openai, remove_think
-from agents.coser.prompt import DIMENSIONS, DIMENSION_DETAILS, ENVIRONMENT, NSP, remove_inner_thoughts
 
 logger = logging.getLogger(__name__)
 
@@ -25,22 +40,22 @@ _RUBRIC_BRIEF = {
     "Storyline Consistency": (
         "1-10 · Does the conversation follow the same narrative arc and key events as the reference?"
     ),
-    "Character Fidelity":    "1-10 · Does each character speak, act, and react like their book counterpart?",
-    "Anthropomorphism":      "1-10 · Do characters behave like real humans (not like AI assistants)?",
-    "Storyline Quality":     "1-10 · Is the dialogue well-crafted, natural, and progressively engaging?",
+    "Character Fidelity": "1-10 · Does each character speak, act, and react like their book counterpart?",
+    "Anthropomorphism": "1-10 · Do characters behave like real humans (not like AI assistants)?",
+    "Storyline Quality": "1-10 · Is the dialogue well-crafted, natural, and progressively engaging?",
 }
 
 
 def get_teacher_character_prompt(
-        book_title: str,
-        character: str,
-        character_profile: str,
-        background: str,
-        scenario: str,
-        motivation: str,
-        wo_thought: bool,
-        other_character_profiles: dict,
-        hint: str,
+    book_title: str,
+    character: str,
+    character_profile: str,
+    background: str,
+    scenario: str,
+    motivation: str,
+    wo_thought: bool,
+    other_character_profiles: dict,
+    hint: str,
 ) -> str:
     """Character system prompt augmented with per-turn coaching hints.
 
@@ -51,11 +66,17 @@ def get_teacher_character_prompt(
     from agents.coser.prompt import get_character_prompt
 
     base_prompt = get_character_prompt(
-        book_title, character, character_profile, background, scenario, motivation,
-        thoughtless=wo_thought, other_character_profiles=other_character_profiles,
+        book_title,
+        character,
+        character_profile,
+        background,
+        scenario,
+        motivation,
+        thoughtless=wo_thought,
+        other_character_profiles=other_character_profiles,
     )
-    base_prompt = base_prompt.strip('\n')
-    base_prompt += '\n\nSpeak concisely as humans, instead of being verbose. Limit your response to 60 words.\n\nAlways respond in English.'
+    base_prompt = base_prompt.strip("\n")
+    base_prompt += "\n\nSpeak concisely as humans, instead of being verbose. Limit your response to 60 words.\n\nAlways respond in English."
 
     rubric_lines = "\n".join(f"  • {dim}: {desc}" for dim, desc in _RUBRIC_BRIEF.items())
 
@@ -80,12 +101,12 @@ Remember: you are {character}. Only output your own lines."""
 
 
 def _build_hint_prompt(
-        reference_str: str,
-        student_conversation: str,
-        circumstance: dict,
-        involved_character_profiles: dict,
-        eval_result: dict,
-        parsed_judge: dict,
+    reference_str: str,
+    student_conversation: str,
+    circumstance: dict,
+    involved_character_profiles: dict,
+    eval_result: dict,
+    parsed_judge: dict,
 ) -> str:
     """Build a scene direction prompt comparing student output to reference."""
 
@@ -101,17 +122,9 @@ def _build_hint_prompt(
             dim_data = parsed_judge.get(dim, {})
             if isinstance(dim_data, dict):
                 judge_reasoning = dim_data.get("reasoning", "")
-        note = (
-            judge_reasoning
-            if judge_reasoning
-            else f"score {score:.0f}/100 — needs improvement"
-        )
+        note = judge_reasoning if judge_reasoning else f"score {score:.0f}/100 — needs improvement"
         key_improvement_lines.append(f"- **{dim}**: {note}")
-    key_improvements = (
-        "\n".join(key_improvement_lines)
-        if key_improvement_lines
-        else "(not available)"
-    )
+    key_improvements = "\n".join(key_improvement_lines) if key_improvement_lines else "(not available)"
 
     return f"""You are a dialogue coach helping characters \
 improve their roleplay.
@@ -137,30 +150,27 @@ Output only the feedback, no preamble."""
 
 
 async def generate_hint(
-        circumstance: dict,
-        involved_character_profiles: dict,
-        eval_result: dict,
-        parsed_judge: dict,
-        student_conversation: str = "",
+    circumstance: dict,
+    involved_character_profiles: dict,
+    eval_result: dict,
+    parsed_judge: dict,
+    student_conversation: str = "",
 ) -> str:
     """Generate a scene direction hint comparing student output to reference.
 
     Returns a markdown-formatted hint string, or empty string on failure.
     """
     from agents.utils import truncate_text, truncate_turns_for_reference
+
     reference = circumstance.get("dialogues", [])
     reference_clean = [
-        m if m["character"] == ENVIRONMENT
-        else {**m, "message": remove_inner_thoughts(m["message"])}
-        for m in reference
+        m if m["character"] == ENVIRONMENT else {**m, "message": remove_inner_thoughts(m["message"])} for m in reference
     ]
     reference_clean = truncate_turns_for_reference(
-        reference_clean, content_key="message",
+        reference_clean,
+        content_key="message",
     )
-    reference_str = "\n\n".join(
-        f"{m['character']}: {m['message']}".strip("\n")
-        for m in reference_clean
-    )
+    reference_str = "\n\n".join(f"{m['character']}: {m['message']}".strip("\n") for m in reference_clean)
     reference_str = truncate_text(reference_str, 2000)
 
     prompt = _build_hint_prompt(
@@ -176,7 +186,7 @@ async def generate_hint(
     hint_text = None
     try:
         async with asyncio.timeout(200):
-            hint_text = await call_openai(messages, model='gpt-5.4-nano', reasoning_effort='low')
+            hint_text = await call_openai(messages, model="gpt-5.4-nano", reasoning_effort="low")
             if hint_text:
                 hint_text = remove_think(hint_text).strip()
     except asyncio.TimeoutError:
@@ -188,8 +198,6 @@ async def generate_hint(
         return ""
 
     header = (
-        "=== Scene Reflection Hints ===\n"
-        "(Review these hints before replaying this scene"
-        " to achieve a higher score)\n\n"
+        "=== Scene Reflection Hints ===\n(Review these hints before replaying this scene to achieve a higher score)\n\n"
     )
     return header + hint_text

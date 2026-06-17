@@ -1,6 +1,20 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
+
 import numpy as np
-import pandas as pd
 import pyarrow.parquet as pq
 import torch
 from torch.nn.functional import pad
@@ -11,6 +25,7 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
 # ── Tokenizer wrapper ──────────────────────────────────────────────────────────
+
 
 def _wrap_tokenizer(tokenizer):
     """
@@ -37,6 +52,7 @@ def _wrap_tokenizer(tokenizer):
 
 
 # ── File-list parsing ──────────────────────────────────────────────────────────
+
 
 def parse_files(files_arg) -> list[tuple[str, float]]:
     """
@@ -88,12 +104,14 @@ def parse_files(files_arg) -> list[tuple[str, float]]:
 
 # ── Parquet batch loader (avoids pyarrow nested-chunked read bug) ─────────────
 
+
 def _load_parquet_batches(path, batch_size=10000):
     """Return (batches, offsets) for random access via binary search.
     Uses pq.ParquetFile.iter_batches instead of pq.read_table to sidestep
     'Nested data conversions not implemented for chunked array outputs'
     on list<struct> columns with large per-row payloads."""
     import bisect as _bisect  # noqa: F401  (ensured imported; used in _slice_to_row)
+
     pf = pq.ParquetFile(path, memory_map=True)
     batches = list(pf.iter_batches(batch_size=batch_size))
     offsets = [0]
@@ -104,6 +122,7 @@ def _load_parquet_batches(path, batch_size=10000):
 
 def _slice_to_row(batches, offsets, row_idx):
     import bisect
+
     bi = bisect.bisect_right(offsets, row_idx) - 1
     local_idx = row_idx - offsets[bi]
     raw = batches[bi].slice(local_idx, 1).to_pydict()
@@ -111,6 +130,7 @@ def _slice_to_row(batches, offsets, row_idx):
 
 
 # ── Collate ────────────────────────────────────────────────────────────────────
+
 
 def sft_collate_fn(samples: list[dict], max_prompt_length: int, max_response_length: int) -> dict:
     """Pad sequences to [left_prompt_pad | prompt | response | right_resp_pad].
@@ -134,32 +154,31 @@ def sft_collate_fn(samples: list[dict], max_prompt_length: int, max_response_len
         assert left_pad >= 0, f"prompt length {prompt_len} exceeds max_prompt_length {max_prompt_length}"
         assert right_pad >= 0, f"response length {resp_len} exceeds max_response_length {max_response_length}"
 
-        input_ids_list.append(pad(s["input_ids"],      (left_pad, right_pad), value=0))
-        attn_list.append(      pad(s["attention_mask"], (left_pad, right_pad), value=0))
-        pos_list.append(       pad(s["position_ids"],   (left_pad, right_pad), value=0))
+        input_ids_list.append(pad(s["input_ids"], (left_pad, right_pad), value=0))
+        attn_list.append(pad(s["attention_mask"], (left_pad, right_pad), value=0))
+        pos_list.append(pad(s["position_ids"], (left_pad, right_pad), value=0))
 
     result = {
-        "input_ids":      torch.stack(input_ids_list),
+        "input_ids": torch.stack(input_ids_list),
         "attention_mask": torch.stack(attn_list),
-        "position_ids":   torch.stack(pos_list),
+        "position_ids": torch.stack(pos_list),
     }
 
     # Response-length tensors: right-pad to batch max response length.
     for key in ["responses", "response_mask", "old_log_probs", "advantages"]:
-        result[key] = torch.stack([
-            pad(s[key], (0, max_resp - s[key].shape[0]), value=0)
-            for s in samples
-        ])
+        result[key] = torch.stack([pad(s[key], (0, max_resp - s[key].shape[0]), value=0) for s in samples])
 
     # Non-tensor: per-row data_source strings (routed to DataProto.non_tensor_batch).
     result["data_source"] = np.array(
-        [s.get("data_source", "unknown") for s in samples], dtype=object,
+        [s.get("data_source", "unknown") for s in samples],
+        dtype=object,
     )
 
     return result
 
 
 # ── Dataset ────────────────────────────────────────────────────────────────────
+
 
 class SFTDataset(Dataset):
     """
@@ -187,6 +206,7 @@ class SFTDataset(Dataset):
 
     def __init__(self, files_arg, tokenizer, config=None, lazy: bool = False, seed: int = 42):
         from sft.sft_data import process
+
         self._process = process
         self.tokenizer = _wrap_tokenizer(tokenizer)
         self.config = config
@@ -248,8 +268,7 @@ class SFTDataset(Dataset):
             batches, offsets = self._shards[src_idx]
         else:
             if src_idx not in self._shards:
-                self._shards[src_idx] = _load_parquet_batches(
-                    self._sources[src_idx]["path"])
+                self._shards[src_idx] = _load_parquet_batches(self._sources[src_idx]["path"])
             batches, offsets = self._shards[src_idx]
         return _slice_to_row(batches, offsets, row_idx)
 

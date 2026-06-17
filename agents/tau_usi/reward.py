@@ -1,7 +1,22 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import threading
-from typing import Any
 from random import Random
-from agents.tau_usi.utils import DIMENSION_KEYS, _RATE_FEATURES, _safe_mean, FIELD_ORDINAL
+from typing import Any
+
+from agents.tau_usi.utils import _RATE_FEATURES, DIMENSION_KEYS, FIELD_ORDINAL, _safe_mean
 
 
 class FeatureStatsBuffer:
@@ -77,6 +92,7 @@ def _kl_weight(h_k: float, mu_k: float, ci_half: float, clip: float = 3.0) -> fl
     grad = h_k / mu_safe - (1.0 - h_k) / (1.0 - mu_safe)
     return max(-clip, min(clip, grad))
 
+
 def _normalize_ordinal(entry: dict[str, Any], field: str) -> float | None:
     ordinal_map = FIELD_ORDINAL.get(field, {})
     answer = (entry.get("survey", {}).get(field) or {}).get("answer")
@@ -87,6 +103,7 @@ def _normalize_ordinal(entry: dict[str, Any], field: str) -> float | None:
     if high == low:
         return 1.0
     return (ordinal_map[answer] - low) / (high - low)
+
 
 def compute_eval_agreement(
     human_entry: dict[str, Any],

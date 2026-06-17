@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import re
 
 WIN = [(0, 1, 2), (3, 4, 5), (6, 7, 8), (0, 3, 6), (1, 4, 7), (2, 5, 8), (0, 4, 8), (2, 4, 6)]
@@ -31,8 +45,8 @@ Do not explain. Do not say anything except the action."""
     llm_client = context["client"]
     models = [data["model_a"], data["model_b"]]
     chats = [
-        [{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': 'Your turn.'}],
-        [{'role': 'system', 'content': system_prompt}]
+        [{"role": "system", "content": system_prompt}, {"role": "user", "content": "Your turn."}],
+        [{"role": "system", "content": system_prompt}],
     ]
     rewards = [0, 0]
 
@@ -43,7 +57,7 @@ Do not explain. Do not say anything except the action."""
         response = (await llm_client.responses.create(model=models[pid], input=chats[pid])).output[-1].content[0].text
         print(pid, response)
         a = parse(response)
-        chats[pid].append({'role': 'assistant', 'content': response})
+        chats[pid].append({"role": "assistant", "content": response})
 
         if a is None or not (0 <= a <= 8) or board[a] != " ":  # invalid pid lose
             rewards[pid] = -1
@@ -62,9 +76,8 @@ Do not explain. Do not say anything except the action."""
         chats[1 - pid].append({"role": "user", "content": f"Opponent played [{a}]. Your turn."})
         pid = 1 - pid
 
-    print('Reward:', rewards)
+    print("Reward:", rewards)
     return [
-        {'reward': rewards[0], 'chat': chats[0], 'model_name': models[0]},
-        {'reward': rewards[1], 'chat': chats[1], 'model_name': models[1]},
+        {"reward": rewards[0], "chat": chats[0], "model_name": models[0]},
+        {"reward": rewards[1], "chat": chats[1], "model_name": models[1]},
     ]
-
