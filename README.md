@@ -29,17 +29,17 @@ verbal-feedback post-training, expert distillation, and SOUL evaluation.
         <a href="README_DITTO.md">Doc</a> ·
         <a href="http://arxiv.org/abs/2605.20506">Paper</a> ·
         <a href="https://huggingface.co/sunweiwei/Ditto-8B">Model</a> ·
-        <a href="recipe/ditto">Recipe</a>
+        <a href="recipe/ditto/README.md">Recipe</a>
       </p>
     </td>
     <td width="50%" valign="top">
-      <a href="assets/Building Foundation Models for Human Behavior Simulation.pdf">
+      <a href="https://arxiv.org/abs/2606.14199">
         <img src="assets/osim-card.png" alt="OdysSim" width="100%">
       </a>
       <h3>OdysSim</h3>
       <p><strong>Building Foundation Models for Human Behavior Simulation</strong></p>
       <p>
-        <a href="assets/Building Foundation Models for Human Behavior Simulation.pdf">Paper</a> ·
+        <a href="https://arxiv.org/abs/2606.14199">Paper</a> ·
         <a href="https://huggingface.co/collections/cmu-lti/odyssim">Models</a> ·
         <a href="https://huggingface.co/datasets/cmu-lti/osim-mid-training">Data</a>
       </p>
@@ -98,7 +98,6 @@ verl/                              Core RL/SFT training infrastructure
 agents/                            Agent rollout loops and task environments
 sft/                               SFT and midtraining utilities
 recipe/ditto/                      Frozen recipe for the Ditto paper
-plot/NeurIPS2026_user_sim_phase3/  OdysSim paper source
 data/                              Local data directory
 
 run_sft.sh                         Midtraining / SFT entry
