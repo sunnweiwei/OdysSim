@@ -33,6 +33,10 @@ from types import SimpleNamespace
 
 from transformers import AutoTokenizer
 
+# We call rollout_one_task (NOT agent_loop): agent_loop is the verl RL wrapper —
+# it builds a verl AgentLoopOutput (importing verl) and needs RL-only inputs
+# (feature_stats_buffer, human_feature_targets). rollout_one_task is the pure
+# rollout that returns the eval record with no verl, which is all eval needs.
 from agents.tau_usi.agent import rollout_one_task
 from agents.utils import CallAPI
 

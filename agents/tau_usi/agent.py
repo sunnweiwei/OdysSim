@@ -331,7 +331,13 @@ Do not include any text outside JSON."""
 async def agent_loop(data, context):
     """verl RL path: run one task, compute the distributional proxy reward, and
     return the verl ``AgentLoopOutput``. Thin wrapper over :func:`rollout_one_task`
-    (the rollout itself needs no verl)."""
+    (the rollout itself needs no verl).
+
+    For EVALUATION call :func:`rollout_one_task` directly, not this. This builds a
+    verl ``AgentLoopOutput`` (so it imports verl) and requires RL-only inputs
+    (``context["feature_stats_buffer"]``, ``data["human_feature_targets"]``);
+    eval just wants the transcript/reward/survey/features that rollout_one_task
+    already returns. See ``run_eval.py``."""
     record, user_agent = await rollout_one_task(data, context)
     features = record["features"]
     survey = record["survey"]

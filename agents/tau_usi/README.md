@@ -5,11 +5,12 @@
 USI is a **distribution-level** metric, so evaluation has two stages and only the
 first is per-task:
 
-1. **Rollout (one task at a time, preserved):** `agent.py::agent_loop` simulates
-   the user for a single TauBench task and the harness writes a
-   `*_task_results.json` (`{"results": [{instance_id, conversation, survey,
-   reward, ...}, ...]}`). The RL reward in `reward.py` (`compute_distributional_
-   reward`, an EMA moment-matching proxy) is unrelated to the USI score below.
+1. **Rollout (one task at a time):** `agent.py::rollout_one_task` simulates the
+   user for a single TauBench task and a driver writes a `*_task_results.json`
+   (`{"results": [{instance_id, conversation, survey, reward, ...}, ...]}`). See
+   the **Rollout** section below. The RL reward in `reward.py`
+   (`compute_distributional_reward`, an EMA moment-matching proxy) is unrelated
+   to the USI score below.
 2. **Scoring (aggregation):** `usi_metric.py` is a faithful, numpy-only port of
    AgentArena's `annotation_analysis/analyze_interaction.compute_all_with_variance`
    — Dice-Sørensen D1–D4 over pooled feature rows vs the 3 human batches,
@@ -36,6 +37,50 @@ python -m agents.tau_usi.usi_metric score results/v6_task_results.json --label o
 
 # Re-freeze the difficulty map when the baselines change (needs data/tau_usi/eval_results/)
 python -m agents.tau_usi.usi_metric freeze --eval-results-dir data/tau_usi/eval_results
+```
+
+## Rollout: producing `*_task_results.json`
+
+The rollout lives in `agent.py` as **two** functions, deliberately split:
+
+- **`rollout_one_task(data, context)` — the pure rollout.** Runs one TauBench task
+  (model = user simulator, talking to a fixed agent) and returns a plain record
+  dict (`instance_id, conversation, chat, survey, reward, features,
+  termination_reason`). It has **no dependency on verl/torch** — it needs only
+  `context.llm_client` (the user-sim), `context.tokenizer`, `context.config`, and
+  a reachable runtime service (`RUNTIME_SERVICE_URL`). The fixed **agent** is
+  matched to AgentArena's `agent_service/tau_agent.py` (gpt-5.2 via the Responses
+  API, shared `extract_fn_call` + `tau_env.step`, greeting turn, ≤64 tool-rounds
+  per turn × ≤80 user turns) so only the user-sim varies and USI is comparable.
+  Configurable via `TAU_USI_AGENT_MODEL` / `TAU_USI_AGENT_REASONING_EFFORT`.
+
+- **`agent_loop(data, context)` — the verl RL wrapper.** Calls `rollout_one_task`,
+  then computes the distributional proxy reward and builds a verl
+  `AgentLoopOutput` (token ids / masks / logprobs) for training. This path
+  **imports verl** and needs RL-only inputs (`context["feature_stats_buffer"]`,
+  `data["human_feature_targets"]`).
+
+**Why evaluation (and `run_eval.py`) calls `rollout_one_task`, not `agent_loop`:**
+evaluation only wants the transcript + reward + survey + features — the record
+`rollout_one_task` already returns. Going through `agent_loop` would re-import
+verl (defeating the point of being able to evaluate API models with no
+verl/torch/GPU) and hand back an RL tensor object you'd have to unpack. So the
+two callers split cleanly: `agent_loop` for RL training, `rollout_one_task` for
+eval.
+
+### Run a standalone eval (external/API user-sim, no verl/GPU)
+
+`run_eval.py` is the verl-free driver — it builds a minimal context (an
+OpenAI-compatible `CallAPI` user-sim + a stand-in tokenizer for token
+bookkeeping), runs `rollout_one_task` one task at a time, and writes
+`<model>_task_results.json` (then scored with `usi_metric`, above):
+
+```bash
+RUNTIME_SERVICE_URL=http://localhost:8005 \
+OPENAI_AGENT_API_KEY=... OPENAI_API_KEY=... \
+python -m agents.tau_usi.run_eval --user-sim-model gpt-4o-mini \
+    --domains retail:0-9,airline:0-9 --workers 8
+# older models cap completions at 4096 tokens -> add --response-length 4000
 ```
 
 ## Replication (2026-03-05)
