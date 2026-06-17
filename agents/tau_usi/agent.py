@@ -21,7 +21,7 @@ from agents.env_utils import (
 )
 from agents.tau_usi.utils import extract_conversation_features, FIELD_ORDINAL
 from agents.tau_usi.reward import FeatureStatsBuffer, compute_distributional_reward
-from agents.utils import Agent, call_openai, remove_think, process_post_chat, _get_openai_client, truncate_text
+from agents.utils import Agent, call_openai, remove_think, process_post_chat, _get_openai_client
 
 # Agent (the assistant the user-sim talks to) — matched to AgentArena's fixed
 # tau eval agent in agent_service/tau_agent.py so USI numbers are comparable.
