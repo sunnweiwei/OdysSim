@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 userLLM agent for Harmony evaluation.
 """
@@ -6,12 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import uuid
 import os
 import re
 import unicodedata
+import uuid
 from itertools import combinations
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
+
+from pydantic import BaseModel as _BaseModel
 
 from agents.userllm.ai_detector import analyze_text
 from agents.userllm.helpers import (
@@ -25,12 +41,20 @@ from agents.userllm.helpers import (
     _format_first_turn_prompt,
     _format_sequential_turn_prompt,
     _intent_1gram_overlap,
-    _is_first_turn_from_metadata,
     _normalize_for_choice_match,
     _to_optional_bool,
 )
-from agents.utils import Agent, call_openai, call_openai_parse, process_post_chat, remove_think, editlens_score, get_judge_model, get_judge_reasoning
-from pydantic import BaseModel as _BaseModel
+from agents.utils import (
+    Agent,
+    call_openai,
+    call_openai_parse,
+    editlens_score,
+    get_judge_model,
+    get_judge_reasoning,
+    process_post_chat,
+    remove_think,
+)
+
 
 class QualityDetection(_BaseModel):
     risk_level: str  # "low", "medium", "high"
@@ -77,7 +101,7 @@ Output JSON: {{"risk_level": "low"|"medium"|"high", "reason": "<one sentence>"}}
     result = await call_openai_parse(
         [{"role": "user", "content": prompt}],
         QualityDetection,
-        model=get_judge_model('gpt-5.4-nano'),
+        model=get_judge_model("gpt-5.4-nano"),
         reasoning={"effort": get_judge_reasoning("low")},
     )
     if result is None:
@@ -95,7 +119,7 @@ MAIN_METRICS = {
 }
 
 
-def _as_test_case(row: Dict[str, Any]) -> TestCase:
+def _as_test_case(row: dict[str, Any]) -> TestCase:
     case_id = str(row.get("id") or row.get("case_id") or "")
     if not case_id:
         case_id = "userllm_case"
@@ -108,12 +132,12 @@ def _parse_related_metrics(raw: Any) -> set[str]:
     - related_metrics: list[str] / set[str] / comma-separated string
     - related_metric: same forms (backward-compatible alias)
     """
-    items: List[str] = []
+    items: list[str] = []
     if raw is None:
         return set()
     if isinstance(raw, str):
         items = [p.strip() for p in re.split(r"[,\s]+", raw) if p.strip()]
-    elif isinstance(raw, (list, tuple, set)):
+    elif isinstance(raw, (list, tuple, set)):  # noqa: UP038
         items = [str(x).strip() for x in raw if str(x).strip()]
     else:
         s = str(raw).strip()
@@ -122,7 +146,7 @@ def _parse_related_metrics(raw: Any) -> set[str]:
     return {m for m in items if m in MAIN_METRICS}
 
 
-def _infer_related_metrics(row: Dict[str, Any]) -> set[str]:
+def _infer_related_metrics(row: dict[str, Any]) -> set[str]:
     """Fallback inference when related_metrics is not provided."""
     source = str(row.get("source") or "").strip().lower()
     if source == "commonsense_qa":
@@ -134,7 +158,7 @@ def _infer_related_metrics(row: Dict[str, Any]) -> set[str]:
     return set()
 
 
-def _resolve_related_metrics(row: Dict[str, Any]) -> set[str]:
+def _resolve_related_metrics(row: dict[str, Any]) -> set[str]:
     parsed = _parse_related_metrics(row.get("related_metrics"))
     if not parsed:
         parsed = _parse_related_metrics(row.get("related_metric"))
@@ -151,13 +175,13 @@ def _is_cjk_or_jp_char(ch: str) -> bool:
     )
 
 
-def _tokenize_compatible(text: str) -> List[str]:
+def _tokenize_compatible(text: str) -> list[str]:
     """
     Fallback tokenizer mirroring _tokenize behavior when `regex` package is unavailable.
     """
     s = str(text or "").lower()
-    tokens: List[str] = []
-    buf: List[str] = []
+    tokens: list[str] = []
+    buf: list[str] = []
 
     def flush_word() -> None:
         if buf:
@@ -198,12 +222,14 @@ def _intent_1gram_overlap_compatible(intent: str, user_turn: str) -> float:
         return len(intent_set & user_set) / len(user_set)
 
 
-def _first_turn_diversity_compatible(texts: List[str]) -> float:
+def _first_turn_diversity_compatible(texts: list[str]) -> float:
     """Pairwise 1-gram Jaccard diversity; uses regex tokenizer with fallback."""
     try:
         import regex
-        pattern = r'\b\w+\b|[\u4e00-\u9fff]|[\u3040-\u309F\u30A0-\u30FF]|\d|[\p{P}\p{S}]'
-        def tokenize(t: str) -> List[str]:
+
+        pattern = r"\b\w+\b|[\u4e00-\u9fff]|[\u3040-\u309F\u30A0-\u30FF]|\d|[\p{P}\p{S}]"
+
+        def tokenize(t: str) -> list[str]:
             return regex.findall(pattern, (t or "").lower())
     except ModuleNotFoundError:
         tokenize = _tokenize_compatible
@@ -227,7 +253,7 @@ def _first_turn_diversity_compatible(texts: List[str]) -> float:
     return 1.0 - (total / n) if n else 0.0
 
 
-def compute_userllm_aggregates(results: List[dict]) -> Dict[str, float]:
+def compute_userllm_aggregates(results: list[dict]) -> dict[str, float]:
     """
     Aggregate six main userLLM metrics.
     Returns only:
@@ -238,14 +264,14 @@ def compute_userllm_aggregates(results: List[dict]) -> Dict[str, float]:
     - role_adherence
     - intent_adherence
     """
-    first_turn_outputs: List[str] = []
-    intent_scores: List[float] = []
+    first_turn_outputs: list[str] = []
+    intent_scores: list[float] = []
     termination_tp = 0
     termination_fp = 0
     termination_fn = 0
-    ai_scores: List[float] = []
-    role_scores: List[float] = []
-    intent_adherence_scores: List[float] = []
+    ai_scores: list[float] = []
+    role_scores: list[float] = []
+    intent_adherence_scores: list[float] = []
 
     for result in results:
         if not isinstance(result, dict):
@@ -309,11 +335,13 @@ def compute_userllm_aggregates(results: List[dict]) -> Dict[str, float]:
         "termination_f1": float(termination_f1),
         "ai_detector_score": float(sum(ai_scores) / len(ai_scores)) if ai_scores else 0.0,
         "role_adherence": float(sum(role_scores) / len(role_scores)) if role_scores else 0.0,
-        "intent_adherence": float(sum(intent_adherence_scores) / len(intent_adherence_scores)) if intent_adherence_scores else 0.0,
+        "intent_adherence": float(sum(intent_adherence_scores) / len(intent_adherence_scores))
+        if intent_adherence_scores
+        else 0.0,
     }
 
 
-async def _pangram_ai_detector_score(row: Dict[str, Any], output: str) -> Optional[float]:
+async def _pangram_ai_detector_score(row: dict[str, Any], output: str) -> Optional[float]:
     text = output.replace("<|endconversation|>", "").strip()
     if not text:
         return None
@@ -323,6 +351,7 @@ async def _pangram_ai_detector_score(row: Dict[str, Any], output: str) -> Option
     except Exception:
         return None
     return _extract_ai_detector_score(response)
+
 
 async def _llm_ai_detector_score(output: str) -> Optional[float]:
     text = output.replace("<|endconversation|>", "").strip()
@@ -334,7 +363,11 @@ async def _llm_ai_detector_score(output: str) -> Optional[float]:
         "Reply with exactly one word: AI or HUMAN."
     )
     try:
-        result = await call_openai([{"role": "user", "content": prompt}], model=get_judge_model('gpt-5.4-nano'), reasoning_effort=get_judge_reasoning('low'))
+        result = await call_openai(
+            [{"role": "user", "content": prompt}],
+            model=get_judge_model("gpt-5.4-nano"),
+            reasoning_effort=get_judge_reasoning("low"),
+        )
         label = (result or "").strip().upper()
         if label == "AI":
             return 0.0
@@ -345,7 +378,7 @@ async def _llm_ai_detector_score(output: str) -> Optional[float]:
         return None
 
 
-async def _maybe_ai_detector_score(row: Dict[str, Any], output: str) -> Optional[float]:
+async def _maybe_ai_detector_score(row: dict[str, Any], output: str) -> Optional[float]:
     """Try Pangram API first; fall back to LLM judge if unavailable."""
     # score = await _pangram_ai_detector_score(row, output)
     # if score is not None:
@@ -354,7 +387,7 @@ async def _maybe_ai_detector_score(row: Dict[str, Any], output: str) -> Optional
 
 
 async def _maybe_intent_adherence(
-    row: Dict[str, Any],
+    row: dict[str, Any],
     output: str,
 ) -> Optional[float]:
     tc = _as_test_case(row)
@@ -369,7 +402,11 @@ async def _maybe_intent_adherence(
         output=output,
     )
     try:
-        content = await call_openai([{"role": "user", "content": prompt}], model=get_judge_model('gpt-5.4-nano'), reasoning_effort=get_judge_reasoning('low'))
+        content = await call_openai(
+            [{"role": "user", "content": prompt}],
+            model=get_judge_model("gpt-5.4-nano"),
+            reasoning_effort=get_judge_reasoning("low"),
+        )
         label = content.strip().upper()
         if label == "REFUSED":
             return 1.0
@@ -407,13 +444,14 @@ async def agent_loop(data, context):
     else:
         prompt = _format_sequential_turn_prompt(intent, str(conversation_history or ""))
 
-    chat =  [{"role": "system", "content": ""}, {"role": "user", "content": prompt}]
+    chat = [{"role": "system", "content": ""}, {"role": "user", "content": prompt}]
     agent = Agent(context.llm_client, chat, context.tokenizer, context.config, prompt_turn=2)
     response = await agent.step()
     output = remove_think(response) if response else ""
 
     if not output.strip():
         import logging as _log
+
         _log.getLogger(__name__).warning(f"[userllm] empty output after remove_think (raw len={len(response or '')})")
 
     pred_endconversation = "<|endconversation|>" in (output or "")
@@ -421,7 +459,7 @@ async def agent_loop(data, context):
         output = output.split("<|endconversation|>")[0].strip() + "<|endconversation|>"
 
     # Base sub_scores with all keys so _postprocess can build uniform arrays across the batch.
-    sub_scores: Dict[str, Any] = {
+    sub_scores: dict[str, Any] = {
         "userllm/intent_decomposition": None,
         "userllm/termination_f1": None,
         "userllm/ai_detector_score": None,
@@ -441,19 +479,19 @@ async def agent_loop(data, context):
         )
         ai_score = ai_score if ai_score is not None else 0.0
         reward = (intent_decomp + term_score + ai_score) / 3.0
-        sub_scores.update({
-            "userllm/intent_decomposition": intent_decomp,
-            "userllm/termination_f1": term_score,
-            "userllm/ai_detector_score": ai_score,
-        })
+        sub_scores.update(
+            {
+                "userllm/intent_decomposition": intent_decomp,
+                "userllm/termination_f1": term_score,
+                "userllm/ai_detector_score": ai_score,
+            }
+        )
     elif reward_metric == "role_adherence":
         role_reward = None
         choices = _extract_choice_texts(row)
         if choices:
             out_norm = _normalize_for_choice_match(output)
-            mentioned = sum(
-                1 for c in choices if c and _normalize_for_choice_match(c) in out_norm
-            )
+            mentioned = sum(1 for c in choices if c and _normalize_for_choice_match(c) in out_norm)
             # Align with suite.py: attempt=1 iff output mentions exactly 1-2 choice texts;
             # ignore cases that mention ALL choices (usually question repetition).
             if mentioned != len(choices):
@@ -480,11 +518,13 @@ async def agent_loop(data, context):
     #     import logging as _log
     #     _log.getLogger(__name__).warning(f"[quality_judge] HIGH risk — reward zeroed. Reason: {quality_result.reason}")
 
-    sub_scores.update({
-        "userllm/quality_low": int(quality_result.risk_level == "low"),
-        "userllm/quality_medium": int(quality_result.risk_level == "medium"),
-        "userllm/quality_high": int(quality_result.risk_level == "high"),
-    })
+    sub_scores.update(
+        {
+            "userllm/quality_low": int(quality_result.risk_level == "low"),
+            "userllm/quality_medium": int(quality_result.risk_level == "medium"),
+            "userllm/quality_high": int(quality_result.risk_level == "high"),
+        }
+    )
 
     USE_EDITLENS = False
     editlens = None
@@ -493,6 +533,7 @@ async def agent_loop(data, context):
         editlens = await editlens_score(output) if output else 0.0
         editlens_failed = editlens is None
         import logging as _log
+
         if editlens_failed:
             _log.getLogger(__name__).warning("[editlens] API unavailable — no penalty applied.")
         elif editlens > 0.67 and context.is_train:
@@ -501,20 +542,26 @@ async def agent_loop(data, context):
         elif editlens > 0.33 and context.is_train:
             reward = float(reward / 4)
             _log.getLogger(__name__).warning(f"[editlens] MEDIUM AI-like (score={editlens:.3f}) — reward /4.")
-        sub_scores.update({
-            "userllm/editlens_score": 0 if editlens_failed else editlens,
-            "userllm/editlens_medium": 0 if editlens_failed else int(0.33 < editlens <= 0.67),
-            "userllm/editlens_high": 0 if editlens_failed else int(editlens > 0.67),
-            "userllm/editlens_failed": int(editlens_failed),
-        })
+        sub_scores.update(
+            {
+                "userllm/editlens_score": 0 if editlens_failed else editlens,
+                "userllm/editlens_medium": 0 if editlens_failed else int(0.33 < editlens <= 0.67),
+                "userllm/editlens_high": 0 if editlens_failed else int(editlens > 0.67),
+                "userllm/editlens_failed": int(editlens_failed),
+            }
+        )
 
     output_text = output  # keep text before get_agent_output reassigns 'output'
 
     # ===========================================================================
     teacher_prompt = None
     hint = None
-    if getattr(context.config.algorithm, 'use_opd', False) or getattr(context.config.algorithm, 'agent_version', None) == 'copy':
+    if (
+        getattr(context.config.algorithm, "use_opd", False)
+        or getattr(context.config.algorithm, "agent_version", None) == "copy"
+    ):
         from agents.userllm.hint import generate_hint, get_teacher_prompt
+
         hint = await generate_hint(
             row=row,
             output=output_text,
@@ -528,18 +575,23 @@ async def agent_loop(data, context):
         ]
     # ===========================================================================
 
-    output = await agent.get_agent_output(reward, extra_info={
-        "userllm/reward": reward,
-        "all/score": reward,
-        "all/score_v1": reward,
-        **sub_scores,
-    }, teacher_prompt=teacher_prompt)
+    output = await agent.get_agent_output(
+        reward,
+        extra_info={
+            "userllm/reward": reward,
+            "all/score": reward,
+            "all/score_v1": reward,
+            **sub_scores,
+        },
+        teacher_prompt=teacher_prompt,
+    )
     await process_post_chat(data, context, agent.chat, output)
 
-    if getattr(context.config.algorithm, 'agent_version', None) == 'copy' and context.is_train:
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train:
         from agents.userllm.hint_agent import agent_loop as hint_agent_loop
-        data['extra_info']['hint'] = hint or ""
-        data['extra_info']['rollout'] = {
+
+        data["extra_info"]["hint"] = hint or ""
+        data["extra_info"]["rollout"] = {
             "userllm/reward": reward,
             "output": output_text,
             **sub_scores,
@@ -548,7 +600,7 @@ async def agent_loop(data, context):
         copy_agent_output = copy.deepcopy(hint_agent_output)
         copy_agent_output.prompt_ids = copy.deepcopy(output.prompt_ids)
         copy_agent_output.extra_fields["gen_uid"] = str(uuid.uuid4())
-        hint_agent_output.extra_fields["agent_role"] = 'hint_agent'
+        hint_agent_output.extra_fields["agent_role"] = "hint_agent"
         return [output, copy_agent_output, hint_agent_output]
 
     return output
@@ -560,9 +612,9 @@ async def agent_loop(data, context):
             {"role": "assistant", "content": output},
         ],
         "generated_output": output,
-        "related_metrics": sorted(list(related_metrics)),
-        "is_first_turn": is_first_turn,
+        "related_metrics": sorted(list(related_metrics)),  # noqa: F821
+        "is_first_turn": is_first_turn,  # noqa: F821
         "has_intent": has_intent,
-        "pred_endconversation": pred_endconversation if "termination_f1" in related_metrics else None,
-        "true_endconversation": true_endconversation,
+        "pred_endconversation": pred_endconversation if "termination_f1" in related_metrics else None,  # noqa: F821
+        "true_endconversation": true_endconversation,  # noqa: F821
     }

@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import torch
 from omegaconf import OmegaConf
 
@@ -49,10 +63,12 @@ class SFTAsyncActorRolloutRefWorker(AsyncActorRolloutRefWorker):
                 optimizer=self.actor_optimizer,
                 lr_scheduler=self.actor_lr_scheduler,
                 processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_config=OmegaConf.create({
-                    "save_contents": ["model", "optimizer", "extra"],
-                    "load_contents": ["model", "optimizer", "extra"],
-                }),
+                checkpoint_config=OmegaConf.create(
+                    {
+                        "save_contents": ["model", "optimizer", "extra"],
+                        "load_contents": ["model", "optimizer", "extra"],
+                    }
+                ),
             )
 
     def _load_optimizer_to_gpu(self):
@@ -93,9 +109,7 @@ class SFTAsyncActorRolloutRefWorker(AsyncActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_snapshot(self, path):
-        self.snapshot_manager.save_checkpoint(
-            local_path=path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None
-        )
+        self.snapshot_manager.save_checkpoint(local_path=path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_snapshot(self, path):
@@ -120,9 +134,8 @@ class SFTAsyncActorRolloutRefWorker(AsyncActorRolloutRefWorker):
         for g in self.actor_optimizer.param_groups:
             g["lr"] = lr
 
-
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def set_actor_ppo_mini_batch_size(self, unnormalized_mbs):
+    def set_actor_ppo_mini_batch_size(self, unnormalized_mbs):  # noqa: F811
         if not self._is_actor:
             return
         rollout_n = getattr(self.config.rollout, "n", 1) if hasattr(self.config, "rollout") else 1

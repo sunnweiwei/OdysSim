@@ -84,8 +84,8 @@ from verl.utils.model import compute_position_id_with_mask, convert_weight_keys
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage, simple_timer
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
 from verl.utils.py_functional import convert_to_regular_types
-from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
 from verl.utils.ray_utils import get_event_loop
+from verl.utils.seqlen_balancing import prepare_dynamic_batch, restore_dynamic_batch
 from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfig, RolloutConfig
 from verl.workers.config.optimizer import build_optimizer
 from verl.workers.rollout import get_rollout_class
@@ -2044,9 +2044,7 @@ class OPDActorRolloutRefWorker(AsyncActorRolloutRefWorker):
 
         use_shm = self.config.model.get("use_shm", False)
         local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
-        override_model_config = OmegaConf.to_container(
-            OmegaConf.create(self.config.model.get("override_config", {}))
-        )
+        override_model_config = OmegaConf.to_container(OmegaConf.create(self.config.model.get("override_config", {})))
         use_remove_padding = self.config.model.get("use_remove_padding", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 
@@ -2061,9 +2059,7 @@ class OPDActorRolloutRefWorker(AsyncActorRolloutRefWorker):
             trust_remote_code=self.config.model.get("trust_remote_code", False),
             role="ref",
         )[0]
-        self.teacher_policy = DataParallelPPOActor(
-            config=self.config.actor, actor_module=self.teacher_module_fsdp
-        )
+        self.teacher_policy = DataParallelPPOActor(config=self.config.actor, actor_module=self.teacher_module_fsdp)
         log_gpu_memory_usage("After init OPD teacher model", logger=logger)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
@@ -2087,7 +2083,9 @@ class OPDActorRolloutRefWorker(AsyncActorRolloutRefWorker):
 
         with torch.no_grad(), self.ulysses_sharding_manager:
             data = data.to("cpu")
-            log_probs, entropy, topk_ids = self.actor.compute_log_prob_and_topk(data=data, extract_topk_k=extract_topk_k)
+            log_probs, entropy, topk_ids = self.actor.compute_log_prob_and_topk(
+                data=data, extract_topk_k=extract_topk_k
+            )
 
         if self.world_size > 1 and fsdp_version(self.actor.actor_module) == 1:
             self.actor.actor_module._handle.reshard(True)
@@ -2112,8 +2110,8 @@ class OPDActorRolloutRefWorker(AsyncActorRolloutRefWorker):
         When student_topk_ids is present in data.batch, also gathers teacher log probs
         at those positions (for top-k OPD forward KL loss).
         """
-        responses = data.batch["responses"]           # [B, resp_len]
-        response_mask = data.batch["response_mask"]   # [B, resp_len]
+        responses = data.batch["responses"]  # [B, resp_len]
+        response_mask = data.batch["response_mask"]  # [B, resp_len]
         B, response_len = responses.shape
 
         opd_cfg = self.config.get("opd", {})
@@ -2139,8 +2137,8 @@ class OPDActorRolloutRefWorker(AsyncActorRolloutRefWorker):
 
         # Teacher input: [teacher_prompt | response] for all B samples.
         # Non-OPD rows have prompt_mask=0; remove_padding / Ulysses handle them correctly.
-        teacher_input_ids = torch.cat([prompt_ids, responses], dim=1)        # [B, T]
-        teacher_attn_mask = torch.cat([prompt_mask, response_mask], dim=1)   # [B, T]
+        teacher_input_ids = torch.cat([prompt_ids, responses], dim=1)  # [B, T]
+        teacher_attn_mask = torch.cat([prompt_mask, response_mask], dim=1)  # [B, T]
         teacher_pos_ids = teacher_attn_mask.long().cumsum(-1) - 1
         teacher_pos_ids.masked_fill_(teacher_attn_mask == 0, 0)
 
@@ -2211,7 +2209,8 @@ class OPDActorRolloutRefWorker(AsyncActorRolloutRefWorker):
             model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
             with torch.no_grad():
                 entropy, log_probs, gathered_log_probs = self.teacher_policy._forward_micro_batch_topk(
-                    model_inputs, temperature=temperature,
+                    model_inputs,
+                    temperature=temperature,
                     gather_ids=model_inputs["student_topk_ids"],
                 )
             log_probs_lst.append(log_probs)
@@ -2236,6 +2235,7 @@ class OPDActorRolloutRefWorker(AsyncActorRolloutRefWorker):
             for t_param, a_param in zip(
                 self.teacher_module_fsdp.parameters(),
                 self.actor_module_fsdp.parameters(),
+                strict=False,
             ):
                 a_data = a_param.data.to(device=t_param.device)
                 t_param.data.mul_(1.0 - update_rate).add_(a_data, alpha=update_rate)

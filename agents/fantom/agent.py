@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 FanToM agent for Harmony evaluation.
 
@@ -22,11 +36,12 @@ Reward per question:
 """
 
 import copy
+import logging
 import re
 import string
-import logging
 import uuid
 from collections import Counter
+
 from agents.utils import Agent, process_post_chat, remove_think
 
 logger = logging.getLogger(__name__)
@@ -47,6 +62,7 @@ PROMPT_TEMPLATE = """You are analyzing a social conversation and need to answer 
 # ---------------------------------------------------------------------------
 # Data helpers (ported from social_world_model/task_modules/fantom.py)
 # ---------------------------------------------------------------------------
+
 
 def str_to_list(s: str) -> list[str]:
     """Convert a bracket/comma list string like "['A', 'B']" to a list."""
@@ -117,6 +133,7 @@ def flatten_fantom_data(entry: dict) -> list[dict]:
 # Answer extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_answer(response: str) -> str:
     """Extract content strictly from <answer>...</answer> tags. Returns '' if not found."""
     if not response:
@@ -130,6 +147,7 @@ def extract_answer(response: str) -> str:
 # ---------------------------------------------------------------------------
 # Scoring helpers (ported from FantomEvalAgent)
 # ---------------------------------------------------------------------------
+
 
 def _normalize_text(s: str) -> str:
     """SQuAD-style normalization: lowercase, strip articles/punct, collapse whitespace."""
@@ -202,14 +220,7 @@ def evaluate_list_q(correct_answer, wrong_answer, model_response: str) -> bool:
 
 def _has_yes_pattern(text: str) -> bool:
     t = text.lower().strip().strip("'").strip('"')
-    return (
-        t.startswith("yes")
-        or t.startswith("true")
-        or " yes," in t
-        or " yes " in t
-        or " yes." in t
-        or " knows " in t
-    )
+    return t.startswith("yes") or t.startswith("true") or " yes," in t or " yes " in t or " yes." in t or " knows " in t
 
 
 def _has_no_pattern(text: str) -> bool:
@@ -266,6 +277,7 @@ def score_response(question_type: str, correct_answer, wrong_answer, model_respo
 # Batch aggregation
 # ---------------------------------------------------------------------------
 
+
 def compute_fantom_aggregates(results: list[dict]) -> dict:
     """
     Compute accuracy breakdown by question_type and missed_info_accessibility.
@@ -300,6 +312,7 @@ def compute_fantom_aggregates(results: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 # agent_loop
 # ---------------------------------------------------------------------------
+
 
 async def agent_loop(data, context):
     """
@@ -359,12 +372,15 @@ async def agent_loop(data, context):
     reward = score_response(question_type, correct_answer, wrong_answer, predicted)
     is_correct = reward >= 1.0
 
-    output = await agent.get_agent_output(reward, extra_info={
-        "fantom/reward": reward,
-        "fantom/response_length": len(response.split()) if response else 0,
-        "all/score": reward,
-        "all/score_v1": reward,
-    })
+    output = await agent.get_agent_output(
+        reward,
+        extra_info={
+            "fantom/reward": reward,
+            "fantom/response_length": len(response.split()) if response else 0,
+            "all/score": reward,
+            "all/score_v1": reward,
+        },
+    )
 
     # ===========================================================================
     # Hint + second attempt (mirrors sotopia/lifechoices copy-agent pattern)
@@ -372,25 +388,24 @@ async def agent_loop(data, context):
     # ===========================================================================
     extra = {}
     hint = None
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and reward < 1.0):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and reward < 1.0:
         from agents.fantom.hint import generate_hint
+
         hint = await generate_hint(row, content, reward)
         if hint:
-            extra['hint'] = hint
+            extra["hint"] = hint
 
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and context.is_train
-            and hint):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train and hint:
         from agents.fantom.hint_agent import agent_loop as hint_agent_loop
-        data['extra_info']['hint'] = hint
-        data['extra_info']['old_reward'] = reward
+
+        data["extra_info"]["hint"] = hint
+        data["extra_info"]["old_reward"] = reward
 
         hint_agent_output = await hint_agent_loop(data, context)
         copy_agent_output = copy.deepcopy(hint_agent_output)
         copy_agent_output.prompt_ids = copy.deepcopy(output.prompt_ids)
         copy_agent_output.extra_fields["gen_uid"] = str(uuid.uuid4())
-        hint_agent_output.extra_fields["agent_role"] = 'hint_agent'
+        hint_agent_output.extra_fields["agent_role"] = "hint_agent"
         output = [output, copy_agent_output, hint_agent_output]
     # ===========================================================================
 

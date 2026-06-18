@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 ToMBench agent for Harmony evaluation.
 
@@ -25,23 +39,20 @@ This implementation follows the paper's evaluation setup closely:
 from __future__ import annotations
 
 import re
-from collections import defaultdict
-from typing import Any
 
 from agents.utils import Agent, process_post_chat
 
-
-SYSTEM_PROMPT_ZH = '''下面给你提供一段故事，一个问题和若干答案选项，请你根据故事内容和给定的问题，按照常理推测，选择一个最可能的答案选项，并输出答案序号。
+SYSTEM_PROMPT_ZH = """下面给你提供一段故事，一个问题和若干答案选项，请你根据故事内容和给定的问题，按照常理推测，选择一个最可能的答案选项，并输出答案序号。
 注意：
 （1）请先一步步思考，对问题的答案进行推理分析，最后请输出最可能的答案序号，格式为：<answer>答案序号</answer>，例如，最可能的答案选项为”A. 手提包”，则输出”<answer>A</answer>”；
 （2）请必须从给定的答案选项”A、B、C、D”中选择一个作为输出；
-（3）再次强调，你必须先给出一步步推理的结果，最后再输出最可能的答案序号。你不应该直接输出答案。'''
+（3）再次强调，你必须先给出一步步推理的结果，最后再输出最可能的答案序号。你不应该直接输出答案。"""
 
-SYSTEM_PROMPT_EN = '''Below is a multiple-choice question with a story and several answer options. Based on the content of the story and the given question, please infer the most likely answer and output the answer index.
+SYSTEM_PROMPT_EN = """Below is a multiple-choice question with a story and several answer options. Based on the content of the story and the given question, please infer the most likely answer and output the answer index.
 Note:
 (1) Please first think step by step, conduct analysis on the answers to the questions, and finally output the most likely answer index in the format: <answer>Answer Index</answer>;
 (2) You must choose one of the given answer options “A, B, C, D” as your answer;
-(3) Again, you must first output the results of step-by-step reasoning, and finally output the most likely answer index. You should not directly output the answer index.'''
+(3) Again, you must first output the results of step-by-step reasoning, and finally output the most likely answer index. You should not directly output the answer index."""
 
 
 def extract_choice_letter(text: str) -> str | None:
@@ -60,7 +71,7 @@ def get_options_dict(row: dict) -> dict[str, str]:
     if isinstance(options, dict):
         return {str(letter): str(text) for letter, text in options.items()}
     choices = row.get("options") or []
-    return {letter: str(choice) for letter, choice in zip(["A", "B", "C", "D"], choices)}
+    return {letter: str(choice) for letter, choice in zip(["A", "B", "C", "D"], choices, strict=False)}
 
 
 def build_user_prompt(row: dict) -> str:
@@ -102,11 +113,7 @@ async def agent_loop(data: dict, context):
     correct_letter = str(row.get("correct_letter", "")).strip().upper()
     reward = 1.0 if final_prediction == correct_letter and correct_letter else 0.0
 
-    extra_info = {
-        "all/score": reward,
-        "tombench/reward": reward,
-        "tombench/response_len": len(response.split())
-    }
+    extra_info = {"all/score": reward, "tombench/reward": reward, "tombench/response_len": len(response.split())}
 
     output = await agent.get_agent_output(reward, extra_info=extra_info)
     await process_post_chat(data, context, agent.chat, output)

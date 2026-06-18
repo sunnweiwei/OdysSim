@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Tau-USI benchmark for Harmony.
 
@@ -13,15 +27,16 @@ import os
 import re
 import time
 from typing import Any
-from agents.tool_prompt import TOOL_PROMPT, convert_tools_to_description
+
 from agents.env_utils import (
     BaseEnv,
     RuntimeServiceError,
     extract_fn_call,
 )
-from agents.tau_usi.utils import extract_conversation_features, FIELD_ORDINAL
 from agents.tau_usi.reward import FeatureStatsBuffer, compute_distributional_reward
-from agents.utils import Agent, call_openai, remove_think, process_post_chat, _get_openai_client
+from agents.tau_usi.utils import FIELD_ORDINAL, extract_conversation_features
+from agents.tool_prompt import TOOL_PROMPT, convert_tools_to_description
+from agents.utils import Agent, _get_openai_client, call_openai, process_post_chat, remove_think
 
 # Agent (the assistant the user-sim talks to) — matched to AgentArena's fixed
 # tau eval agent in agent_service/tau_agent.py so USI numbers are comparable.
@@ -67,11 +82,8 @@ class TauUSIEnv(BaseEnv):
 
         tools_info = self.meta_info.get("tools_info", [])
         wiki = self.meta_info.get("wiki", "")
-        tool_description = TOOL_PROMPT.format(
-            description=convert_tools_to_description(tools_info)
-        )
+        tool_description = TOOL_PROMPT.format(description=convert_tools_to_description(tools_info))
         return wiki + "\n\n" + tool_description
-
 
 
 def _to_positive_float_or_none(value: Any) -> float | None:
@@ -120,8 +132,7 @@ SURVEY_QUESTION_TEXT = {
 
 def _default_structured_survey() -> dict[str, dict[str, str]]:
     return {
-        field: {"question": SURVEY_QUESTION_TEXT.get(field, field), "answer": "no answer"}
-        for field in FIELD_ORDINAL
+        field: {"question": SURVEY_QUESTION_TEXT.get(field, field), "answer": "no answer"} for field in FIELD_ORDINAL
     }
 
 
@@ -160,7 +171,6 @@ def _structure_survey_answers(raw_answers: dict[str, Any] | None) -> dict[str, d
     return structured
 
 
-
 async def parse_survey_response(survey_response):
     parsed = _parse_json_object(survey_response)
     if parsed is None:
@@ -169,8 +179,8 @@ async def parse_survey_response(survey_response):
             "A user just filled out a survey but the output was not valid JSON. "
             "Extract the survey answers and return ONLY a JSON object with these keys: "
             f"{question_ids}\n"
-            "- If an answer is unrelated, use \"no answer\".\n"
-            "- If the text is gibberish or unreadable, use \"no answer\".\n\n"
+            '- If an answer is unrelated, use "no answer".\n'
+            '- If the text is gibberish or unreadable, use "no answer".\n\n'
             f"{survey_response}"
         )
         try:
@@ -205,9 +215,7 @@ async def rollout_one_task(data, context):
     try:
         await tau_env.initialize()
     except RuntimeServiceError as error:
-        raise RuntimeError(
-            "Tau runtime service unavailable during initialization."
-        ) from error
+        raise RuntimeError("Tau runtime service unavailable during initialization.") from error
 
     # AgentArena eval_tau opens with the agent greeting; the user-sim replies first.
     GREETING = "Hi! How can I help you today?"
@@ -216,7 +224,7 @@ async def rollout_one_task(data, context):
         {"role": "system", "content": system_prompt},
         {"role": "assistant", "content": GREETING},
     ]
-    user_system_prompt = f"""{tau_env.meta_info['instruction'] if tau_env.meta_info else ""}
+    user_system_prompt = f"""{tau_env.meta_info["instruction"] if tau_env.meta_info else ""}
 
 Rules:
 - Just generate one line at a time to simulate the user's message.
@@ -349,8 +357,13 @@ async def agent_loop(data, context):
     # in the same units as extract_conversation_features output, i.e. rates in
     # [0,1], NOT the ×100 scaled values from build_row).
     dist_reward: dict[str, float] = {
-        "D1_conv": 0.0, "D2_info": 0.0, "D3_clarif": 0.0, "D4_react": 0.0,
-        "ece": 0.0, "eval_agreement": 0.0, "total": 0.0,
+        "D1_conv": 0.0,
+        "D2_info": 0.0,
+        "D3_clarif": 0.0,
+        "D4_react": 0.0,
+        "ece": 0.0,
+        "eval_agreement": 0.0,
+        "total": 0.0,
     }
     buf: FeatureStatsBuffer | None = context.get("feature_stats_buffer")
     human_targets: dict[str, float] | None = data.get("human_feature_targets")
@@ -360,17 +373,16 @@ async def agent_loop(data, context):
         features=features,
         human_targets=human_targets,
         mu_estimates=buf.read(),
-        mode='mse',
+        mode="mse",
         model_reward=model_reward,
         human_reward=float(human_instance["reward"]) if human_instance else None,
         model_survey=survey,
         human_survey=human_instance.get("survey") if human_instance else None,
     )
-    reward = dist_reward['total']
-    output = await user_agent.get_agent_output(reward, extra_info={
-        "tau_usi/reward": dist_reward,
-        **{f"tau_usi/{k}":v for k,v in dist_reward.items()}
-    })
+    reward = dist_reward["total"]
+    output = await user_agent.get_agent_output(
+        reward, extra_info={"tau_usi/reward": dist_reward, **{f"tau_usi/{k}": v for k, v in dist_reward.items()}}
+    )
 
     await process_post_chat(data, context, user_agent.chat, output)
     return output

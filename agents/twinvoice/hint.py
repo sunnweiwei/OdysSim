@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Hint generation for the TwinVoice agent.
 
@@ -9,6 +23,7 @@ model likely overlooked.
 
 import asyncio
 import logging
+
 from agents.utils import call_openai, remove_think
 
 logger = logging.getLogger(__name__)
@@ -21,6 +36,7 @@ def get_teacher_prompt(row: dict, hint: str) -> str:
     choices, so the model absorbs it before evaluating options.
     """
     from agents.twinvoice.agent import build_prompt
+
     base_prompt = build_prompt(row)
 
     reminder = f"\nAs you reason through this, keep in mind: {hint}\n"
@@ -42,6 +58,7 @@ def _build_hint_prompt(row: dict, content: str | None) -> str:
     history = row.get("conversation_history") or row.get("history") or []
     if isinstance(history, str):
         import json
+
         history = json.loads(history)
     history_text = "\n".join(f"- {h}" for h in history)
 
@@ -49,13 +66,12 @@ def _build_hint_prompt(row: dict, content: str | None) -> str:
     choices = row.get("answer_choices") or row.get("choices") or []
     if isinstance(choices, str):
         import json
+
         choices = json.loads(choices)
     correct_idx = row.get("answer_idx") or 0
     correct_text = choices[correct_idx] if 0 <= correct_idx < len(choices) else ""
 
-    options_text = "\n".join(
-        f"{chr(65 + i)}. {opt}" for i, opt in enumerate(choices)
-    )
+    options_text = "\n".join(f"{chr(65 + i)}. {opt}" for i, opt in enumerate(choices))
     predicted_str = content if content else "(no response)"
 
     return f"""You are a coaching assistant helping a language model improve at persona-driven response selection.
@@ -103,7 +119,7 @@ async def generate_hint(row: dict, content: str | None) -> str:
     hint_text = None
     try:
         async with asyncio.timeout(120):
-            hint_text = await call_openai(messages, model='gpt-5.4-nano', reasoning_effort='low')
+            hint_text = await call_openai(messages, model="gpt-5.4-nano", reasoning_effort="low")
             if hint_text:
                 hint_text = remove_think(hint_text).strip()
     except asyncio.TimeoutError:

@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 BehaviorChain multiple-choice agent for Harmony evaluation.
 
@@ -12,7 +26,6 @@ import json
 import re
 
 from agents.utils import Agent, process_post_chat
-
 
 PROMPT_TEMPLATE = """You are simulating a persona's continuous behavior in a narrative benchmark.
 
@@ -71,9 +84,9 @@ def build_prompt(row: dict) -> str:
 
     options = row.get("options_dict")
     if isinstance(options, dict):
-        options_text = "\n".join(f"{l}. {options.get(l, '')}" for l in "ABCD")
+        options_text = "\n".join(f"{l}. {options.get(l, '')}" for l in "ABCD")  # noqa: E741
     else:
-        options_text = "\n".join(f"{l}. {c}" for l, c in zip("ABCD", row.get("options") or []))
+        options_text = "\n".join(f"{l}. {c}" for l, c in zip("ABCD", row.get("options") or [], strict=False))  # noqa: E741
 
     return PROMPT_TEMPLATE.format(
         profile_text=profile_text,
@@ -102,10 +115,7 @@ async def agent_loop(data: dict, context):
 
     output = await agent.get_agent_output(
         reward,
-        extra_info={
-            "behavior_chain/reward": reward,
-            "all/score": reward
-        },
+        extra_info={"behavior_chain/reward": reward, "all/score": reward},
     )
     await process_post_chat(data, context, agent.chat, output)
     return output

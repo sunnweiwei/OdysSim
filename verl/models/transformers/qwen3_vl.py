@@ -323,7 +323,10 @@ def forward_with_torch_backend(
 
         fused_topk_extract = FusedLinearForPPOTopK()
         topk_ids, _ = fused_topk_extract.extract_topk(
-            hidden_states, self.lm_head.weight, extract_topk_k, temperature,
+            hidden_states,
+            self.lm_head.weight,
+            extract_topk_k,
+            temperature,
         )
 
     return Qwen3VLCausalLMOutputForPPO(

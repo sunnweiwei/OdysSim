@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 ParaToMI agent for Harmony evaluation.
 
@@ -14,9 +28,10 @@ Scoring: correct_answer.lower() in predicted.lower() (substring match).
 """
 
 import copy
-import re
 import logging
+import re
 import uuid
+
 from agents.utils import Agent, process_post_chat, remove_think
 
 logger = logging.getLogger(__name__)
@@ -62,9 +77,7 @@ def build_prompt(row: dict) -> str:
         try:
             cand_list = eval(cands) if isinstance(cands, str) else cands
             if isinstance(cand_list, list) and cand_list:
-                candidates_section = CANDIDATES_SECTION.format(
-                    candidates=", ".join(str(c) for c in cand_list)
-                )
+                candidates_section = CANDIDATES_SECTION.format(candidates=", ".join(str(c) for c in cand_list))
         except Exception:
             candidates_section = CANDIDATES_SECTION.format(candidates=str(cands))
 
@@ -117,8 +130,7 @@ def evaluate_paratomi(predicted: str, correct_answer: str, cands) -> bool:
         return False
     if not _contains_whole(correct_answer, predicted):
         return False
-    wrong_cands = [c for c in _parse_candidates(cands)
-                   if c.strip().lower() != correct_answer.strip().lower()]
+    wrong_cands = [c for c in _parse_candidates(cands) if c.strip().lower() != correct_answer.strip().lower()]
     for wc in wrong_cands:
         if _contains_whole(wc, predicted):
             return False
@@ -178,7 +190,7 @@ async def agent_loop(data, context):
     row = data["extra_info"]
 
     prompt = build_prompt(row)
-    chat = [{"role": "system", "content": ''}, {"role": "user", "content": prompt}]
+    chat = [{"role": "system", "content": ""}, {"role": "user", "content": prompt}]
 
     agent = Agent(context.llm_client, chat, context.tokenizer, context.config, prompt_turn=2, enable_think=True)
     response = await agent.step()
@@ -189,37 +201,39 @@ async def agent_loop(data, context):
     is_correct = evaluate_paratomi(predicted, correct_answer, row.get("cands", ""))
     reward = 1.0 if is_correct else 0.0
 
-    output = await agent.get_agent_output(reward, extra_info={
-        "paratomi/reward": reward,
-        "paratomi/response_length": len(response.split()) if response else 0,
-        "all/score": reward,
-        "all/score_v1": reward,
-    })
+    output = await agent.get_agent_output(
+        reward,
+        extra_info={
+            "paratomi/reward": reward,
+            "paratomi/response_length": len(response.split()) if response else 0,
+            "all/score": reward,
+            "all/score_v1": reward,
+        },
+    )
 
     # ===========================================================================
     # Hint + second attempt (mirrors sotopia/lifechoices/fantom/hitom copy-agent pattern)
     # ===========================================================================
     extra = {}
     hint = None
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and not is_correct):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and not is_correct:
         from agents.paratomi.hint import generate_hint
+
         hint = await generate_hint(row, content)
         if hint:
-            extra['hint'] = hint
+            extra["hint"] = hint
 
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and context.is_train
-            and hint):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train and hint:
         from agents.paratomi.hint_agent import agent_loop as hint_agent_loop
-        data['extra_info']['hint'] = hint
-        data['extra_info']['old_reward'] = reward
+
+        data["extra_info"]["hint"] = hint
+        data["extra_info"]["old_reward"] = reward
 
         hint_agent_output = await hint_agent_loop(data, context)
         copy_agent_output = copy.deepcopy(hint_agent_output)
         copy_agent_output.prompt_ids = copy.deepcopy(output.prompt_ids)
         copy_agent_output.extra_fields["gen_uid"] = str(uuid.uuid4())
-        hint_agent_output.extra_fields["agent_role"] = 'hint_agent'
+        hint_agent_output.extra_fields["agent_role"] = "hint_agent"
         output = [output, copy_agent_output, hint_agent_output]
     # ===========================================================================
 

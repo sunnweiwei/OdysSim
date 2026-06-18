@@ -63,6 +63,9 @@ ignore = [
     "UP045",
     # deprecated import
     "UP035",
+    # line too long — managed by the formatter (it targets line-length; only
+    # unbreakable lines such as long strings/URLs would remain, which we allow)
+    "E501",
 ]
 
 # -------------------------------

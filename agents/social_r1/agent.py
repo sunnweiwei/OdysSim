@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Search-R1 agent for Harmony evaluation.
 
@@ -12,7 +26,7 @@ from __future__ import annotations
 import copy
 import re
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from agents.utils import Agent, process_post_chat, remove_think
 
@@ -50,7 +64,7 @@ def _extract_gold_letter(answer_text: str) -> str:
     return answer_text.strip()[:1].upper()
 
 
-def _build_prompt_from_row(row: Dict[str, Any]) -> str:
+def _build_prompt_from_row(row: dict[str, Any]) -> str:
     """Build the user prompt from normalized or raw human-sim formatted rows."""
     prompt_text = str(row.get("prompt_text") or "").strip()
     if prompt_text:
@@ -103,7 +117,7 @@ async def agent_loop(data: dict, context):
         extra_info={
             "social_r1/reward": reward,
             "social_r1/response_length": len(response.split()) if response else 0,
-            "all/score": reward
+            "all/score": reward,
         },
     )
 
@@ -112,17 +126,16 @@ async def agent_loop(data: dict, context):
     # ===========================================================================
     extra = {}
     hint = None
-    if (getattr(context.config.algorithm, "agent_version", None) == "copy"
-            and reward < 1.0):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and reward < 1.0:
         from agents.social_r1.hint import generate_hint
+
         hint = await generate_hint(row, content)
         if hint:
             extra["hint"] = hint
 
-    if (getattr(context.config.algorithm, "agent_version", None) == "copy"
-            and context.is_train
-            and hint):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train and hint:
         from agents.social_r1.hint_agent import agent_loop as hint_agent_loop
+
         data["extra_info"]["hint"] = hint
         data["extra_info"]["old_reward"] = reward
 

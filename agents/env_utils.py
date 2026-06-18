@@ -1,8 +1,20 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import json
 import os
 import re
-import requests
-import json
-from openai import OpenAI
 
 BASE_DOMAIN = os.getenv("BASE_DOMAIN")
 RUNTIME_SERVICE_URL = os.getenv("RUNTIME_SERVICE_URL", f"http://{BASE_DOMAIN}:8005")
@@ -21,26 +33,22 @@ def extract_fn_call(text):
     """
     if not text:
         return None
-    text = re.split(r'<\[[^\]]+\]>', text)[-1].strip()
+    text = re.split(r"<\[[^\]]+\]>", text)[-1].strip()
 
     # Only accept <function=name> format for function names
-    matches = list(re.finditer(
-        r'(?m)^[ \t]*<function=([^>]+)>\s*(.*?)\s*</function>',
-        text,
-        re.DOTALL
-    ))
+    matches = list(re.finditer(r"(?m)^[ \t]*<function=([^>]+)>\s*(.*?)\s*</function>", text, re.DOTALL))
 
     if not matches:
         # Check for incomplete function call
-        fn_start = re.search(r'(?m)^[ \t]*<function=([^>]+)>', text)
+        fn_start = re.search(r"(?m)^[ \t]*<function=([^>]+)>", text)
         if fn_start:
             fn_name = fn_start.group(1)
 
             # Check for wrong closing tag format: </function=...> instead of </function>
-            wrong_close_function = re.search(r'</function=', text)
+            wrong_close_function = re.search(r"</function=", text)
             if wrong_close_function:
                 return {
-                    'error': f"""**Tool Call Format Error**
+                    "error": f"""**Tool Call Format Error**
 
 You used `</function=` as a closing tag, but closing tags should NOT have `=` in them.
 
@@ -62,10 +70,10 @@ The closing tag should simply be `</function>` without any `=` or name."""
                 }
 
             # First check for wrong format: <parameter>value</parameter> instead of <parameter=name>value</parameter>
-            wrong_param_format = re.findall(r'<parameter>([^<]*)</parameter>', text)
+            wrong_param_format = re.findall(r"<parameter>([^<]*)</parameter>", text)
             if wrong_param_format:
                 return {
-                    'error': f"""**Tool Call Format Error**
+                    "error": f"""**Tool Call Format Error**
 
 You used `<parameter>` without specifying the parameter name. The parameter name must be in the opening tag.
 
@@ -86,13 +94,13 @@ You used `<parameter>` without specifying the parameter name. The parameter name
 Please use `<parameter=PARAM_NAME>value</parameter>` format. The parameter name (e.g., `message`, `command`, `path`) must be specified in the opening tag like `<parameter=message>`."""
                 }
 
-            open_params = len(re.findall(r'<parameter=[^>]+>', text))
-            close_params = len(re.findall(r'</parameter>', text))
-            has_close_function = bool(re.search(r'</function>', text))
+            open_params = len(re.findall(r"<parameter=[^>]+>", text))
+            close_params = len(re.findall(r"</parameter>", text))
+            has_close_function = bool(re.search(r"</function>", text))
 
             if (open_params != close_params) or (not has_close_function):
                 return {
-                    'error': f"""**Tool Call Format Error**
+                    "error": f"""**Tool Call Format Error**
 
 It looks like you started a tool call but didn't close one or more tags (e.g., missing `</parameter>` and/or `</function>`).
 
@@ -121,11 +129,11 @@ Please make sure every `<parameter=...>` has a matching `</parameter>`, and ever
         fn_name = m.group(1)
 
         # First check for wrong format: <parameter>value</parameter> instead of <parameter=name>value</parameter>
-        wrong_param_format = re.findall(r'<parameter>([^<]*)</parameter>', fn_body)
+        wrong_param_format = re.findall(r"<parameter>([^<]*)</parameter>", fn_body)
         if wrong_param_format:
-            preview = wrong_param_format[0][:50].replace('\n', ' ')
+            preview = wrong_param_format[0][:50].replace("\n", " ")
             return {
-                'error': f"""**Tool Call Format Error**
+                "error": f"""**Tool Call Format Error**
 
 You used `<parameter>` without specifying the parameter name. The parameter name must be in the opening tag.
 
@@ -147,11 +155,11 @@ Please use `<parameter=PARAM_NAME>value</parameter>` format. The parameter name 
             }
 
         # Check for incomplete parameters
-        open_params = len(re.findall(r'<parameter=[^>]+>', fn_body))
-        close_params = len(re.findall(r'</parameter>', fn_body))
+        open_params = len(re.findall(r"<parameter=[^>]+>", fn_body))
+        close_params = len(re.findall(r"</parameter>", fn_body))
         if open_params != close_params:
             return {
-                'error': f"""**Tool Call Format Error**
+                "error": f"""**Tool Call Format Error**
 
 It looks like you started a tool call but didn't close one or more parameter tags (e.g., missing `</parameter>`).
 
@@ -175,7 +183,7 @@ Please make sure every `<parameter=...>` has a matching `</parameter>`."""
     groups = [[matches[0]]]
     for m in matches[1:]:
         prev = groups[-1][-1]
-        line_gap = text.count('\n', prev.end(), m.start())
+        line_gap = text.count("\n", prev.end(), m.start())
         groups[-1].append(m) if line_gap < 4 else groups.append([m])
     last = groups[-1]
 
@@ -185,27 +193,20 @@ Please make sure every `<parameter=...>` has a matching `</parameter>`."""
         fn_name = m.group(1)
 
         # Extract standard format parameters: <parameter=name>value</parameter>
-        standard_params = dict(re.findall(
-            r'<parameter=([^>]+)>(.*?)</parameter>',
-            fn_body,
-            re.DOTALL
-        ))
+        standard_params = dict(re.findall(r"<parameter=([^>]+)>(.*?)</parameter>", fn_body, re.DOTALL))
 
         # Extract XML-style parameters: <name>value</name> (but exclude 'parameter' and 'function' tags)
-        xml_params = re.findall(r'<([a-z_][a-z0-9_]*)>(.*?)</\1>', fn_body, re.DOTALL | re.IGNORECASE)
+        xml_params = re.findall(r"<([a-z_][a-z0-9_]*)>(.*?)</\1>", fn_body, re.DOTALL | re.IGNORECASE)
         xml_params_dict = {}
         for param_name, param_value in xml_params:
             # Skip 'parameter' and 'function' tags (these are structural, not parameters)
-            if param_name.lower() not in ['parameter', 'function']:
+            if param_name.lower() not in ["parameter", "function"]:
                 xml_params_dict[param_name] = param_value.strip()
 
         # Merge: standard params take precedence, then XML params
         merged_params = {**xml_params_dict, **standard_params}
 
-        results.append({
-            'name': fn_name,
-            'arguments': merged_params
-        })
+        results.append({"name": fn_name, "arguments": merged_params})
 
     return results
 
@@ -227,11 +228,11 @@ def fn_call_to_text(fn_call) -> str:
         parts = [fn_call_to_text(item) for item in fn_call]
         return "\n\n".join(parts)
 
-    if not isinstance(fn_call, dict) or 'name' not in fn_call:
+    if not isinstance(fn_call, dict) or "name" not in fn_call:
         raise ValueError("fn_call must be a dict with 'name' key or a list of such dicts")
 
-    fn_name = fn_call['name']
-    arguments = fn_call.get('arguments', {}) or {}
+    fn_name = fn_call["name"]
+    arguments = fn_call.get("arguments", {}) or {}
 
     # Build the function call text
     lines = [f"<function={fn_name}>"]
@@ -252,6 +253,7 @@ def fn_call_to_text(fn_call) -> str:
 
 class RuntimeServiceError(Exception):
     """Exception raised when runtime service is unavailable after retries."""
+
     pass
 
 
@@ -270,20 +272,21 @@ class BaseEnv:
         """Make HTTP request with retry logic (30s total timeout)."""
         import asyncio
         import time
+
         import aiohttp
+
         start_time = time.time()
         last_error = None
         attempt = 0
-        timeout_val = kwargs.pop('timeout', 30)
-        json_data = kwargs.pop('json', None)
+        timeout_val = kwargs.pop("timeout", 30)
+        json_data = kwargs.pop("json", None)
 
         async with aiohttp.ClientSession() as session:
             while time.time() - start_time < self.MAX_RETRY_TIME:
                 attempt += 1
                 try:
                     async with session.request(
-                        method, url, json=json_data,
-                        timeout=aiohttp.ClientTimeout(total=timeout_val), **kwargs
+                        method, url, json=json_data, timeout=aiohttp.ClientTimeout(total=timeout_val), **kwargs
                     ) as response:
                         response.raise_for_status()
                         return await response.json()
@@ -306,22 +309,36 @@ class BaseEnv:
     async def ping(self):
         """Check if environment exists and is responsive."""
         if not self.runtime_id:
-            return {'exists': False, 'has_ping': False, 'ping_result': None, 'meta_info': None,
-                    'message': 'No runtime_id'}
+            return {
+                "exists": False,
+                "has_ping": False,
+                "ping_result": None,
+                "meta_info": None,
+                "message": "No runtime_id",
+            }
         try:
             result = await self._request_with_retry(
-                'POST', f"{RUNTIME_SERVICE_URL}/ping",
-                json={"runtime_id": self.runtime_id}, timeout=30
+                "POST", f"{RUNTIME_SERVICE_URL}/ping", json={"runtime_id": self.runtime_id}, timeout=30
             )
-            if result.get('meta_info'):
-                result['meta_info'] = json.loads(result['meta_info'])
+            if result.get("meta_info"):
+                result["meta_info"] = json.loads(result["meta_info"])
             return result
         except RuntimeServiceError:
-            return {'exists': False, 'has_ping': False, 'ping_result': None, 'meta_info': None,
-                    'message': 'Runtime service unavailable'}
+            return {
+                "exists": False,
+                "has_ping": False,
+                "ping_result": None,
+                "meta_info": None,
+                "message": "Runtime service unavailable",
+            }
         except Exception as e:
-            return {'exists': False, 'has_ping': False, 'ping_result': None, 'meta_info': None,
-                    'message': f'Ping error: {str(e)}'}
+            return {
+                "exists": False,
+                "has_ping": False,
+                "ping_result": None,
+                "meta_info": None,
+                "message": f"Ping error: {str(e)}",
+            }
 
     async def create(self, env_type=None):
         """Create new runtime environment with retry."""
@@ -330,39 +347,42 @@ class BaseEnv:
         # Filter out None values from params to avoid JSON serialization issues
         params = {k: v for k, v in self.params.items() if v is not None}
         result = await self._request_with_retry(
-            'POST', f"{RUNTIME_SERVICE_URL}/create",
+            "POST",
+            f"{RUNTIME_SERVICE_URL}/create",
             json={"env_type": env_type, "params": json.dumps(params)},
-            timeout=300
+            timeout=300,
         )
-        self.runtime_id = result['runtime_id']
-        self.meta_info = json.loads(result['meta_info'])
+        self.runtime_id = result["runtime_id"]
+        self.meta_info = json.loads(result["meta_info"])
         return self.meta_info
 
     async def _execute_step(self, fn_call: dict):
         """Execute single step with retry."""
         result = await self._request_with_retry(
-            'POST', f"{RUNTIME_SERVICE_URL}/step",
+            "POST",
+            f"{RUNTIME_SERVICE_URL}/step",
             json={"runtime_id": self.runtime_id, "params": json.dumps(fn_call)},
-            timeout=600
+            timeout=600,
         )
-        return result['result']
+        return result["result"]
 
     async def get_reward(self, **kwargs):
         """Get reward from environment with retry."""
         result = await self._request_with_retry(
-            'POST', f"{RUNTIME_SERVICE_URL}/reward",
+            "POST",
+            f"{RUNTIME_SERVICE_URL}/reward",
             json={"runtime_id": self.runtime_id, "params": json.dumps(kwargs)},
-            timeout=30
+            timeout=30,
         )
-        return result['reward']
+        return result["reward"]
 
     async def restore(self, conversation):
         """Restore environment by replaying actions from conversation."""
         # Parse actions from conversation
         actions = []
         for msg in conversation:
-            if msg['role'] == 'assistant':
-                fn_calls = extract_fn_call(msg['content'])
+            if msg["role"] == "assistant":
+                fn_calls = extract_fn_call(msg["content"])
                 if fn_calls:
                     actions.extend(fn_calls)
 
@@ -380,7 +400,7 @@ class BaseEnv:
             await self.create()
 
         # Ping and restore if needed
-        if not (await self.ping())['exists']:
+        if not (await self.ping())["exists"]:
             if conversation:
                 await self.restore(conversation)
             else:
@@ -404,18 +424,15 @@ class BaseEnv:
         if existing_runtime_id:
             self.runtime_id = existing_runtime_id
             ping_result = await self.ping()
-            if ping_result['exists']:
+            if ping_result["exists"]:
                 # Existing runtime is valid - reuse it
-                self.meta_info = ping_result.get('meta_info')
+                self.meta_info = ping_result.get("meta_info")
                 return  # Don't create new runtime
 
         # Runtime doesn't exist or wasn't provided - need to create/restore
         # Check if we can restore from conversation (rare case - runtime went down)
         if conversation:
-            has_actions = any(
-                msg['role'] == 'assistant' and extract_fn_call(msg['content'])
-                for msg in conversation
-            )
+            has_actions = any(msg["role"] == "assistant" and extract_fn_call(msg["content"]) for msg in conversation)
             if has_actions:
                 await self.restore(conversation)
                 return  # restore() calls create() internally

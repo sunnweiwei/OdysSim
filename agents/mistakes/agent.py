@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Mistakes agent for Harmony evaluation.
 
@@ -12,7 +26,8 @@ from __future__ import annotations
 import copy
 import re
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Optional
+
 from agents.utils import Agent, process_post_chat, remove_think
 
 OPTION_LETTERS = ("A", "B", "C", "D")
@@ -28,7 +43,6 @@ STUDENT_SYSTEM_PROMPT = (
 )
 
 
-
 def _extract_option_letter(text: str) -> Optional[str]:
     """Extract option letter strictly from <answer>X</answer> tag."""
     if not text:
@@ -39,7 +53,7 @@ def _extract_option_letter(text: str) -> Optional[str]:
     return None
 
 
-def _build_prompt_from_row(row: Dict[str, Any]) -> str:
+def _build_prompt_from_row(row: dict[str, Any]) -> str:
     """Build zero-shot user prompt: problem + options + misconception."""
     options = []
     for letter in OPTION_LETTERS:
@@ -106,37 +120,39 @@ async def agent_loop(data, context):
     correct = str(row.get("TargetOption") or row.get("target_option") or "").strip().upper()
     reward = 1.0 if (predicted is not None and predicted == correct) else 0.0
 
-    output = await agent.get_agent_output(reward, extra_info={
-        "mistakes/reward": reward,
-        "mistakes/response_length": len(response.split()) if response else 0,
-        "all/score": reward,
-        "all/score_v1": reward,
-    })
+    output = await agent.get_agent_output(
+        reward,
+        extra_info={
+            "mistakes/reward": reward,
+            "mistakes/response_length": len(response.split()) if response else 0,
+            "all/score": reward,
+            "all/score_v1": reward,
+        },
+    )
 
     # ===========================================================================
     # Hint + second attempt
     # ===========================================================================
     extra = {}
     hint = None
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and reward < 1.0 and context.global_step < 90):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and reward < 1.0 and context.global_step < 90:
         from agents.mistakes.hint import generate_hint
+
         hint = await generate_hint(row, content)
         if hint:
-            extra['hint'] = hint
+            extra["hint"] = hint
 
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and context.is_train
-            and hint):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train and hint:
         from agents.mistakes.hint_agent import agent_loop as hint_agent_loop
-        data['extra_info']['hint'] = hint
-        data['extra_info']['old_reward'] = reward
+
+        data["extra_info"]["hint"] = hint
+        data["extra_info"]["old_reward"] = reward
 
         hint_agent_output = await hint_agent_loop(data, context)
         copy_agent_output = copy.deepcopy(hint_agent_output)
         copy_agent_output.prompt_ids = copy.deepcopy(output.prompt_ids)
         copy_agent_output.extra_fields["gen_uid"] = str(uuid.uuid4())
-        hint_agent_output.extra_fields["agent_role"] = 'hint_agent'
+        hint_agent_output.extra_fields["agent_role"] = "hint_agent"
         output = [output, copy_agent_output, hint_agent_output]
         # output = [output, copy_agent_output]
     # ===========================================================================
@@ -149,8 +165,8 @@ async def agent_loop(data, context):
         "chat": chat,
         "predicted": predicted,
         "correct": correct,
-        "final_answer": final_answer,
-        "final_answer_mode": final_answer_mode,
+        "final_answer": final_answer,  # noqa: F821
+        "final_answer_mode": final_answer_mode,  # noqa: F821
         "target_text": str(row.get("TargetAnswer") or row.get("target_text") or "").strip(),
         "misconception_id": str(row.get("MisconceptionId") or "").strip(),
         "misconception_name": str(row.get("MisconceptionName") or "").strip(),

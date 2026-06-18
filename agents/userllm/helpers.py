@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Helpers for the userLLM agent: prompts, TestCase, and suite utility functions.
 Ported from eval/suites/userLLM so that the agent has no dependency on eval.
@@ -7,9 +21,8 @@ from __future__ import annotations
 
 import re
 import string
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
-
+from dataclasses import dataclass
+from typing import Any, Optional
 
 # ── Prompts ──────────────────────────────────────────────────────────────────
 
@@ -41,11 +54,12 @@ If the user's reply follows the AI's suggestion, output only: ACCEPTED
 
 # ── TestCase ──────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class TestCase:
     id: str
-    data: Dict[str, Any]
-    metadata: Optional[Dict[str, Any]] = None
+    data: dict[str, Any]
+    metadata: Optional[dict[str, Any]] = None
 
     def __post_init__(self):
         if self.metadata is None:
@@ -57,35 +71,90 @@ class TestCase:
 _INTENT_PREFIX = "You are a user chatting with an assistant language model to"
 
 _STOPWORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "but", "by", "can", "could",
-    "did", "do", "does", "for", "from", "had", "has", "have", "how", "i",
-    "if", "in", "into", "is", "it", "its", "me", "might", "my", "of", "on",
-    "or", "our", "should", "so", "that", "the", "their", "them", "then",
-    "there", "these", "they", "this", "to", "us", "was", "we", "were",
-    "what", "when", "where", "which", "who", "why", "will", "with", "would",
-    "you", "your",
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "can",
+    "could",
+    "did",
+    "do",
+    "does",
+    "for",
+    "from",
+    "had",
+    "has",
+    "have",
+    "how",
+    "i",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "me",
+    "might",
+    "my",
+    "of",
+    "on",
+    "or",
+    "our",
+    "should",
+    "so",
+    "that",
+    "the",
+    "their",
+    "them",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "to",
+    "us",
+    "was",
+    "we",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "will",
+    "with",
+    "would",
+    "you",
+    "your",
 }
 
 
 # ── Tokenizer (requires `regex` package) ─────────────────────────────────────
 
-def _tokenize(text: str) -> List[str]:
+
+def _tokenize(text: str) -> list[str]:
     """Tokenize text using the `regex` package (may raise ModuleNotFoundError)."""
     import regex
-    pattern = r'\b\w+\b|[\u4e00-\u9fff]|[\u3040-\u309F\u30A0-\u30FF]|\d|[\p{P}\p{S}]'
+
+    pattern = r"\b\w+\b|[\u4e00-\u9fff]|[\u3040-\u309F\u30A0-\u30FF]|\d|[\p{P}\p{S}]"
     return regex.findall(pattern, (text or "").lower())
 
 
 # ── Token helpers ─────────────────────────────────────────────────────────────
 
+
 def _is_cjk_char(s: str) -> bool:
-    return len(s) == 1 and (
-        ("\u4e00" <= s <= "\u9fff") or ("\u3040" <= s <= "\u30ff")
-    )
+    return len(s) == 1 and (("\u4e00" <= s <= "\u9fff") or ("\u3040" <= s <= "\u30ff"))
 
 
-def _filter_tokens_for_overlap(tokens: List[str]) -> List[str]:
-    out: List[str] = []
+def _filter_tokens_for_overlap(tokens: list[str]) -> list[str]:
+    out: list[str] = []
     for t in tokens or []:
         if not t or t in _STOPWORDS:
             continue
@@ -111,6 +180,7 @@ def _intent_1gram_overlap(intent: str, user_turn: str) -> float:
 
 
 # ── Extraction helpers ────────────────────────────────────────────────────────
+
 
 def _extract_ai_detector_score(obj: Any) -> Optional[float]:
     """Extract human-likeness score (1.0 = human, 0.0 = AI) from Pangram API response.
@@ -138,17 +208,18 @@ def _extract_ai_detector_score(obj: Any) -> Optional[float]:
         return None
 
 
-def _extract_choice_texts(data: Any) -> List[str]:
+def _extract_choice_texts(data: Any) -> list[str]:
     if not isinstance(data, dict):
         return []
     ch = data.get("choices")
     if isinstance(ch, str):
         try:
             import json as _json
+
             ch = _json.loads(ch)
         except Exception:
             return []
-    out: List[str] = []
+    out: list[str] = []
     if isinstance(ch, dict):
         texts = ch.get("text")
         if isinstance(texts, list):
@@ -171,7 +242,7 @@ def _normalize_intent(intent: str) -> str:
     i = low.find(pref_low)
     if i == -1:
         return s
-    tail = s[i + len(_INTENT_PREFIX):].strip()
+    tail = s[i + len(_INTENT_PREFIX) :].strip()
     while tail[:1] in (":", "-", "\u2014"):
         tail = tail[1:].lstrip()
     return tail or s
@@ -194,7 +265,7 @@ def _extract_intent(tc: TestCase) -> str:
     return ""
 
 
-def _extract_intent_adherence_fields(tc: TestCase) -> Optional[Tuple[str, str]]:
+def _extract_intent_adherence_fields(tc: TestCase) -> Optional[tuple[str, str]]:
     if not isinstance(tc.data, dict):
         return None
     q = str(tc.data.get("question") or "").strip()
@@ -219,7 +290,7 @@ def _format_sequential_turn_prompt(intent: str, conversation_history: str) -> st
     return SEQUENTIAL_TURN_PROMPT.replace("{INTENT}", intent).replace("{CONVERSATION_HISTORY}", conversation_history)
 
 
-def _is_first_turn_from_metadata(metadata: Dict[str, Any]) -> bool:
+def _is_first_turn_from_metadata(metadata: dict[str, Any]) -> bool:
     if not isinstance(metadata, dict):
         return True
     t = metadata.get("turn")
@@ -236,7 +307,7 @@ def _to_optional_bool(x: Any) -> Optional[bool]:
         return None
     if isinstance(x, bool):
         return x
-    if isinstance(x, (int, float)) and x in (0, 1):
+    if isinstance(x, (int, float)) and x in (0, 1):  # noqa: UP038
         return bool(int(x))
     if isinstance(x, str):
         s = x.strip().lower()

@@ -1,13 +1,27 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import logging
 import os
-from typing import Any, Union
+from typing import Any
 
+from agents.utils import CallAPI, CallLLM, TaskContext
 from verl.experimental.agent_loop.agent_loop import (
     AgentLoopBase,
     AgentLoopOutput,
     register,
 )
-from agents.utils import CallLLM, CallAPI, TaskContext
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -17,29 +31,29 @@ def _get_agent_loop(data_source: str):
     """Map data_source name to its agent_loop function.
     Data source names match the keys registered in prepare_dataset.py.
     """
-    from agents.math.math_agent import agent_loop as math_agent_loop
+    from agents.alignx.agent import agent_loop as alignx_agent_loop
+    from agents.behavior_chain.agent import agent_loop as behavior_chain_agent_loop
+    from agents.coser.coser_agent import agent_loop as coser_agent_loop
     from agents.fantom.agent import agent_loop as fantom_agent_loop
     from agents.hitom.agent import agent_loop as hitom_agent_loop
+    from agents.humanllm.agent import agent_loop as humanllm_agent_loop
+    from agents.humanual.agent import agent_loop as humanual_agent_loop
+    from agents.instruct.ifbench_agent import agent_loop as ifbench_agent_loop
     from agents.lifechoices.agent import agent_loop as lifechoices_agent_loop
+    from agents.math.math_agent import agent_loop as math_agent_loop
     from agents.mirrorbench.agent import agent_loop as mirrorbench_agent_loop
     from agents.mistakes.agent import agent_loop as mistakes_agent_loop
     from agents.mmtom.agent import agent_loop as mmtom_agent_loop
     from agents.paratomi.agent import agent_loop as paratomi_agent_loop
-    from agents.userllm.agent import agent_loop as userllm_agent_loop
-    from agents.coser.coser_agent import agent_loop as coser_agent_loop
-    from agents.twinvoice.agent import agent_loop as twinvoice_agent_loop
-    from agents.sotopia.agent import agent_loop as sotopia_agent_loop
-    from agents.sotopia.hint_agent import agent_loop as sotopia_hint_agent_loop
-    from agents.humanual.agent import agent_loop as humanual_agent_loop
-    from agents.instruct.ifbench_agent import agent_loop as ifbench_agent_loop
-    from agents.social_r1.agent import agent_loop as social_r1_agent_loop
     from agents.sim_arena.agent_doc import agent_loop as sim_arena_doc_agent_loop
     from agents.sim_arena.agent_math import agent_loop as sim_arena_math_agent_loop
-    from agents.tombench.agent import agent_loop as tombench_agent_loop
-    from agents.behavior_chain.agent import agent_loop as behavior_chain_agent_loop
-    from agents.alignx.agent import agent_loop as alignx_agent_loop
-    from agents.humanllm.agent import agent_loop as humanllm_agent_loop
+    from agents.social_r1.agent import agent_loop as social_r1_agent_loop
     from agents.socsci210.agent import agent_loop as socsci210_agent_loop
+    from agents.sotopia.agent import agent_loop as sotopia_agent_loop
+    from agents.sotopia.hint_agent import agent_loop as sotopia_hint_agent_loop
+    from agents.tombench.agent import agent_loop as tombench_agent_loop
+    from agents.twinvoice.agent import agent_loop as twinvoice_agent_loop
+    from agents.userllm.agent import agent_loop as userllm_agent_loop
 
     _ROUTES = {
         "fantom": fantom_agent_loop,
@@ -55,28 +69,28 @@ def _get_agent_loop(data_source: str):
         "coser": coser_agent_loop,
         "twinvoice": twinvoice_agent_loop,
         "sotopia_hint": sotopia_hint_agent_loop,
-        'sotopia': sotopia_agent_loop,
-        'humanual': humanual_agent_loop,
-        'humanual-book': humanual_agent_loop,
-        'humanual-chat': humanual_agent_loop,
-        'humanual-email': humanual_agent_loop,
-        'humanual-news': humanual_agent_loop,
-        'humanual-opinion': humanual_agent_loop,
-        'humanual-politics': humanual_agent_loop,
-        'ifbench': ifbench_agent_loop,
-        'social_r1': social_r1_agent_loop,
-        'sim_arena_math': sim_arena_math_agent_loop,
-        'sim_arena_doc': sim_arena_doc_agent_loop,
-        'tombench': tombench_agent_loop,
-        'behavior_chain': behavior_chain_agent_loop,
-        'alignx': alignx_agent_loop,
-        'alignx_demo': alignx_agent_loop,
-        'alignx_pair': alignx_agent_loop,
-        'alignx_ugc': alignx_agent_loop,
-        'alignx_arbitrary': alignx_agent_loop,
-        'alignx_history16': alignx_agent_loop,
-        'humanllm': humanllm_agent_loop,
-        'socsci210': socsci210_agent_loop
+        "sotopia": sotopia_agent_loop,
+        "humanual": humanual_agent_loop,
+        "humanual-book": humanual_agent_loop,
+        "humanual-chat": humanual_agent_loop,
+        "humanual-email": humanual_agent_loop,
+        "humanual-news": humanual_agent_loop,
+        "humanual-opinion": humanual_agent_loop,
+        "humanual-politics": humanual_agent_loop,
+        "ifbench": ifbench_agent_loop,
+        "social_r1": social_r1_agent_loop,
+        "sim_arena_math": sim_arena_math_agent_loop,
+        "sim_arena_doc": sim_arena_doc_agent_loop,
+        "tombench": tombench_agent_loop,
+        "behavior_chain": behavior_chain_agent_loop,
+        "alignx": alignx_agent_loop,
+        "alignx_demo": alignx_agent_loop,
+        "alignx_pair": alignx_agent_loop,
+        "alignx_ugc": alignx_agent_loop,
+        "alignx_arbitrary": alignx_agent_loop,
+        "alignx_history16": alignx_agent_loop,
+        "humanllm": humanllm_agent_loop,
+        "socsci210": socsci210_agent_loop,
     }
     for key, fn in _ROUTES.items():
         if key == data_source:
@@ -104,9 +118,7 @@ class AgentHubLoop(AgentLoopBase):
         cls.processor = processor
         cls.config = config
 
-    async def run(
-            self, sampling_params: dict[str, Any], **kwargs
-    ) -> Union[AgentLoopOutput, list[AgentLoopOutput]]:
+    async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput | list[AgentLoopOutput]:
         item = dict(kwargs)
 
         llm_client = CallLLM(
@@ -117,9 +129,9 @@ class AgentHubLoop(AgentLoopBase):
         )
         context = TaskContext(
             config=self.config,
-            global_step=kwargs.get('global_step', 0),
+            global_step=kwargs.get("global_step", 0),
             llm_client=llm_client,
-            is_train=kwargs.get('is_train', True),
+            is_train=kwargs.get("is_train", True),
             tokenizer=self.tokenizer,
         )
 
@@ -148,9 +160,7 @@ class OpenAIAgentLoop(AgentLoopBase):
         cls.processor = processor
         cls.config = config
 
-    async def run(
-            self, sampling_params: dict[str, Any], **kwargs
-    ) -> Union[AgentLoopOutput, list[AgentLoopOutput]]:
+    async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput | list[AgentLoopOutput]:
         item = dict(kwargs)
 
         model_name = os.getenv("OPENAI_AGENT_MODEL", "gpt-5-nano")
@@ -161,9 +171,9 @@ class OpenAIAgentLoop(AgentLoopBase):
         )
         context = TaskContext(
             config=self.config,
-            global_step=kwargs.get('global_step', 0),
+            global_step=kwargs.get("global_step", 0),
             llm_client=llm_client,
-            is_train=kwargs.get('is_train', True),
+            is_train=kwargs.get("is_train", True),
             tokenizer=self.tokenizer,
         )
 

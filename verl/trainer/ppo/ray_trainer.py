@@ -355,7 +355,8 @@ class RayPPOTrainer:
         self.use_topk_opd = self.use_opd and opd_topk > 1 and use_fused and use_topk_kernel
         if self.use_opd and opd_topk > 1 and not self.use_topk_opd:
             import warnings
-            warnings.warn(
+
+            warnings.warn(  # noqa: B028
                 f"opd_topk={opd_topk} but use_topk_opd=False "
                 f"(use_fused_kernels={use_fused}, use_topk_kernel={use_topk_kernel}). "
                 "Falling back to single-token OPD."
@@ -758,10 +759,16 @@ class RayPPOTrainer:
                 sample_inputs.extend(agg_inputs)
                 sample_outputs.extend(agg_outputs)
                 sample_gts.extend(agg_gts)
-                sample_indices.extend([test_batch.non_tensor_batch["extra_info"][gid_first_idx[g]].get("index") for g in ordered_guids])
+                sample_indices.extend(
+                    [test_batch.non_tensor_batch["extra_info"][gid_first_idx[g]].get("index") for g in ordered_guids]
+                )
                 reward_extra_infos_dict["reward"].extend(agg_scores)
                 for key, values in reward_extra_info.items():
-                    vals = values.tolist() if isinstance(values, np.ndarray) else (values if isinstance(values, list) else [values])
+                    vals = (
+                        values.tolist()
+                        if isinstance(values, np.ndarray)
+                        else (values if isinstance(values, list) else [values])
+                    )
                     if key not in reward_extra_infos_dict:
                         reward_extra_infos_dict[key] = []
                     reward_extra_infos_dict[key].extend([vals[gid_first_idx[g]] for g in ordered_guids])
@@ -781,7 +788,9 @@ class RayPPOTrainer:
                         reward_extra_infos_dict[key].extend(values.tolist())
                     else:
                         reward_extra_infos_dict[key].extend(values if isinstance(values, list) else [values])
-                data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
+                data_source_lst.append(
+                    test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0])
+                )
 
             # collect num_turns of each prompt
             if "__num_turns__" in test_batch.non_tensor_batch:
@@ -816,8 +825,9 @@ class RayPPOTrainer:
                     global_all_metrics[var_name] = np.mean(numeric_vals)
 
         # Filter out all/* keys so process_validation_metrics doesn't re-aggregate them per source
-        filtered_infos_dict = {k: v for k, v in reward_extra_infos_dict.items()
-                               if not (k.startswith("all/") or k == "all")}
+        filtered_infos_dict = {
+            k: v for k, v in reward_extra_infos_dict.items() if not (k.startswith("all/") or k == "all")
+        }
 
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, filtered_infos_dict)
         metric_dict = {}
@@ -1381,15 +1391,24 @@ class RayPPOTrainer:
         if self.use_topk_opd:
             return {"opd/mode": "topk"}
 
-        teacher_log_probs = batch.batch["teacher_log_probs"]   # [B, resp_len]
-        student_log_probs = batch.batch["old_log_probs"]        # [B, resp_len]
-        response_mask = batch.batch["response_mask"]            # [B, resp_len]
-        opd_mask = batch.batch["opd_mask"]                      # [B]
+        teacher_log_probs = batch.batch["teacher_log_probs"]  # [B, resp_len]
+        student_log_probs = batch.batch["old_log_probs"]  # [B, resp_len]
+        response_mask = batch.batch["response_mask"]  # [B, resp_len]
+        opd_mask = batch.batch["opd_mask"]  # [B]
 
         grpo_adv_before = batch.batch["advantages"].clone()
-        opd_adv = compute_opd_advantage(teacher_log_probs, student_log_probs, response_mask, opd_mask,
-                                        estimator=estimator, clip=clip, discount=discount, window=window, normalize=normalize,
-                                        index=batch.non_tensor_batch.get("uid"))
+        opd_adv = compute_opd_advantage(
+            teacher_log_probs,
+            student_log_probs,
+            response_mask,
+            opd_mask,
+            estimator=estimator,
+            clip=clip,
+            discount=discount,
+            window=window,
+            normalize=normalize,
+            index=batch.non_tensor_batch.get("uid"),
+        )
         batch.batch["advantages"] = grpo_adv_before + alpha * opd_adv
         active = response_mask.bool() & opd_mask.bool().unsqueeze(-1)  # [B, resp_len]
         n_opd = opd_mask.sum().item()
@@ -1413,7 +1432,6 @@ class RayPPOTrainer:
                 "opd/grpo_adv_abs_mean": grpo_abs_mean,
             }
         return metrics
-
 
     def _update_critic(self, batch: DataProto) -> DataProto:
         if self.use_legacy_worker_impl == "disable":

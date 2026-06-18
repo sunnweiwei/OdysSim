@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 HUMANUAL hint agent — measures improvement from judge-derived hints.
 
@@ -5,16 +19,17 @@ Runs a fresh attempt using the hint-augmented prompt (with reference included)
 and returns the new alignment score as the reward.
 """
 
-import copy
 import logging
-import uuid
 
-from agents.utils import Agent, call_openai_parse, process_post_chat
-from agents.humanual.hint import get_teacher_system_prompt
 from agents.humanual.agent import (
-    SIMULATION_USER_PROMPT, RESPONSE_JUDGE_PROMPT, STATE_JUDGE_PROMPT,
-    STATE_DESCRIPTIONS, JudgeOutput, _extract_field,
+    RESPONSE_JUDGE_PROMPT,
+    SIMULATION_USER_PROMPT,
+    STATE_DESCRIPTIONS,
+    JudgeOutput,
+    _extract_field,
 )
+from agents.humanual.hint import get_teacher_system_prompt
+from agents.utils import Agent, call_openai_parse
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +43,7 @@ async def agent_loop(data: dict, context):
       - old_reward: float — reward from the prior rollout
     """
     import json
+
     row = data.get("extra_info", data.get("row", {}))
     hint = row.get("hint", "")
     old_reward = float(row.get("old_reward", 0.0))
@@ -37,9 +53,7 @@ async def agent_loop(data: dict, context):
         try:
             prompt_parsed = json.loads(prompt_field)
             if isinstance(prompt_parsed, list):
-                prompt_text = "\n".join(
-                    m.get("content", "") for m in prompt_parsed if isinstance(m, dict)
-                )
+                prompt_text = "\n".join(m.get("content", "") for m in prompt_parsed if isinstance(m, dict))
             else:
                 prompt_text = prompt_field
         except (json.JSONDecodeError, TypeError):
@@ -58,6 +72,7 @@ async def agent_loop(data: dict, context):
         reference=completion,
     )
     from agents.utils import truncate_text_left
+
     user_prompt = SIMULATION_USER_PROMPT.format(prompt=truncate_text_left(prompt_text, 2000))
     chat = [
         {"role": "system", "content": teacher_system},

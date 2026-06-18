@@ -1,8 +1,21 @@
-import json
-import random
-import re
-from agents.utils import Agent, call_openai
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+import json
+import re
+
+from agents.utils import call_openai
 
 ENVIRONMENT = "Environment"
 NSP = "NSP"
@@ -10,13 +23,20 @@ SPECIAL_CHARACTERS = [NSP, ENVIRONMENT]
 
 
 def get_character_prompt(
-    book_name, character, character_profile, background, scenario,
-    motivation, thoughtless=False, other_character_profiles=None,
+    book_name,
+    character,
+    character_profile,
+    background,
+    scenario,
+    motivation,
+    thoughtless=False,
+    other_character_profiles=None,
 ):
     """Build character system prompt (fixed template variant)."""
     if thoughtless:
-        output_format = ("Your output should include **speech** and **action**. "
-                         "Use (your action) for actions, which others can see.")
+        output_format = (
+            "Your output should include **speech** and **action**. Use (your action) for actions, which others can see."
+        )
     else:
         output_format = (
             "Your output should include **thought**, **speech**, and **action**. "
@@ -406,23 +426,24 @@ Provide your evaluation as a JSON object with all four dimensions as top-level k
 # Utility functions
 # ---------------------------------------------------------------------------
 
+
 def remove_inner_thoughts(text: str) -> str:
     """Remove inner thoughts (wrapped in [...]) and system thinking tags from text."""
     if not text:
         return text
     # Remove [thought] markers
-    cleaned = re.sub(r'\[.*?\]', '', text)
+    cleaned = re.sub(r"\[.*?\]", "", text)
     # Clean up whitespace
-    cleaned = '\n'.join(line.strip() for line in cleaned.split('\n'))
-    cleaned = re.sub(r'\n+', '\n', cleaned)
+    cleaned = "\n".join(line.strip() for line in cleaned.split("\n"))
+    cleaned = re.sub(r"\n+", "\n", cleaned)
     # Remove various thinking tags
     patterns = [
-        r'\s*<\s*system[_\s]+think(?:ing)?\s*>.*?</\s*system[_\s]+think(?:ing)?\s*>\s*',
-        r'\s*<\s*role[_\s]+think(?:ing)?\s*>.*?</\s*role[_\s]+think(?:ing)?\s*>\s*',
-        r'\s*<\s*[_\s]+think(?:ing)?\s*>.*?</\s*[_\s]+think(?:ing)?\s*>\s*',
+        r"\s*<\s*system[_\s]+think(?:ing)?\s*>.*?</\s*system[_\s]+think(?:ing)?\s*>\s*",
+        r"\s*<\s*role[_\s]+think(?:ing)?\s*>.*?</\s*role[_\s]+think(?:ing)?\s*>\s*",
+        r"\s*<\s*[_\s]+think(?:ing)?\s*>.*?</\s*[_\s]+think(?:ing)?\s*>\s*",
     ]
     for pattern in patterns:
-        cleaned = re.sub(pattern, '', cleaned, flags=re.S)
+        cleaned = re.sub(pattern, "", cleaned, flags=re.S)
     return cleaned.strip()
 
 
@@ -430,7 +451,7 @@ def add_speaker_name(dialogue: str, speaker: str) -> str:
     """Add speaker name prefix if not already present in any line."""
     if not dialogue:
         return dialogue
-    lines = dialogue.split('\n')
+    lines = dialogue.split("\n")
     for line in lines:
         if line.strip().startswith(f"{speaker}:") or line.strip().startswith(f"{speaker}\uff1a"):
             return dialogue
@@ -439,10 +460,10 @@ def add_speaker_name(dialogue: str, speaker: str) -> str:
 
 def extract_nsp(response: str) -> str | None:
     """Extract next speaker prediction from NSP response."""
-    pattern = r'(?:\*\*|#)?\s*Next\s+Speaker\s*(?:\*\*|#)?\s*(?:[:\-]|\bis\b)?\s*\*?([^\n\*]+)'
+    pattern = r"(?:\*\*|#)?\s*Next\s+Speaker\s*(?:\*\*|#)?\s*(?:[:\-]|\bis\b)?\s*\*?([^\n\*]+)"
     matches = re.findall(pattern, response, re.IGNORECASE)
     if matches:
-        clean_name = matches[-1].strip().rstrip('.,!"\'').replace('*', '')
+        clean_name = matches[-1].strip().rstrip(".,!\"'").replace("*", "")
         if clean_name:
             return clean_name
     return None
@@ -450,7 +471,7 @@ def extract_nsp(response: str) -> str | None:
 
 def _parse_json_inner(text: str) -> dict | None:
     """Try to parse JSON from text using json.loads then raw_decode fallback."""
-    text = re.sub(r'"([^"\\]*(\\.[^"\\]*)*)"', lambda m: m.group().replace('\n', r'\\n'), text)
+    text = re.sub(r'"([^"\\]*(\\.[^"\\]*)*)"', lambda m: m.group().replace("\n", r"\\n"), text)
     try:
         return json.loads(text)
     except Exception:
@@ -496,31 +517,33 @@ async def extract_json_from_text(text: str) -> dict | None:
 # BLEU / ROUGE-L metrics
 # ---------------------------------------------------------------------------
 
+
 def _simple_tokenize(text: str) -> list[str]:
     """Tokenize for metrics (lowercased word tokens)."""
-    return re.findall(r'\b\w+\b', text.lower())
+    return re.findall(r"\b\w+\b", text.lower())
 
 
 def _get_ngrams(tokens: list[str], n: int) -> list[tuple]:
-    return [tuple(tokens[i:i + n]) for i in range(len(tokens) - n + 1)]
+    return [tuple(tokens[i : i + n]) for i in range(len(tokens) - n + 1)]
 
 
 def calculate_bleu(reference_str: str, simulation_str: str) -> float:
     """Compute BLEU score. Uses NLTK if available, else simple fallback."""
     try:
-        from nltk.translate.bleu_score import sentence_bleu
-        from nltk.tokenize import word_tokenize
         import nltk
+        from nltk.tokenize import word_tokenize
+        from nltk.translate.bleu_score import sentence_bleu
+
         try:
-            nltk.data.find('tokenizers/punkt_tab')
+            nltk.data.find("tokenizers/punkt_tab")
         except LookupError:
             try:
-                nltk.download('punkt_tab', quiet=True)
+                nltk.download("punkt_tab", quiet=True)
             except Exception:
                 try:
-                    nltk.data.find('tokenizers/punkt')
+                    nltk.data.find("tokenizers/punkt")
                 except LookupError:
-                    nltk.download('punkt', quiet=True)
+                    nltk.download("punkt", quiet=True)
         ref_tokens = word_tokenize(reference_str.lower())
         pred_tokens = word_tokenize(simulation_str.lower())
         return sentence_bleu([ref_tokens], pred_tokens)
@@ -529,6 +552,7 @@ def calculate_bleu(reference_str: str, simulation_str: str) -> float:
     # Simple BLEU fallback
     import math
     from collections import Counter
+
     ref_tokens = _simple_tokenize(reference_str)
     pred_tokens = _simple_tokenize(simulation_str)
     if not pred_tokens:
@@ -542,9 +566,9 @@ def calculate_bleu(reference_str: str, simulation_str: str) -> float:
         precisions.append(matches / total if total > 0 else 0.0)
     if not precisions or all(p == 0 for p in precisions):
         return 0.0
-    log_p = [math.log(p) if p > 0 else float('-inf') for p in precisions]
+    log_p = [math.log(p) if p > 0 else float("-inf") for p in precisions]
     avg_log = sum(log_p) / len(log_p)
-    if avg_log == float('-inf'):
+    if avg_log == float("-inf"):
         return 0.0
     bp = min(1.0, math.exp(1 - len(ref_tokens) / max(len(pred_tokens), 1)))
     return bp * math.exp(avg_log)
@@ -556,8 +580,9 @@ def calculate_rouge_l(reference_str: str, simulation_str: str) -> float:
         return 0.0
     try:
         from rouge import Rouge
+
         scores = Rouge().get_scores(simulation_str, reference_str)
-        return scores[0]['rouge-l']['f']
+        return scores[0]["rouge-l"]["f"]
     except ImportError:
         pass
     # Simple LCS fallback
@@ -590,9 +615,8 @@ def calculate_bleu_rouge(reference: list, simulation: list, continue_from: int =
     """
     ref_slice = reference[continue_from:]
     sim_slice = simulation[continue_from:]
-    simulation_str = '\n\n'.join([m['content'].strip('\n') for m in sim_slice])
-    reference_str = '\n\n'.join([f"{m['character']}: {m['message']}".strip('\n') for m in ref_slice])
+    simulation_str = "\n\n".join([m["content"].strip("\n") for m in sim_slice])
+    reference_str = "\n\n".join([f"{m['character']}: {m['message']}".strip("\n") for m in ref_slice])
     bleu = calculate_bleu(reference_str, simulation_str)
     rouge_l = calculate_rouge_l(reference_str, simulation_str)
     return bleu, rouge_l
-

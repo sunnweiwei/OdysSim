@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 userLLM hint agent — re-runs a rollout with a hint-augmented teacher prompt
 and evaluates the result.
@@ -15,11 +29,8 @@ for context distillation (KL training).
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
-from agents.utils import Agent, process_post_chat, remove_think
-from agents.userllm.hint import generate_hint, get_teacher_prompt
-from agents.userllm.helpers import _extract_intent, TestCase
 from agents.userllm.agent import (
     _as_test_case,
     _extract_choice_texts,
@@ -29,6 +40,9 @@ from agents.userllm.agent import (
     _normalize_for_choice_match,
     _to_optional_bool,
 )
+from agents.userllm.helpers import _extract_intent
+from agents.userllm.hint import generate_hint, get_teacher_prompt
+from agents.utils import Agent, process_post_chat, remove_think
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +79,10 @@ async def agent_loop(data, context):
     if not hint:
         old_sub_scores = {
             "userllm/intent_decomposition": rollout.get("userllm/intent_decomposition"),
-            "userllm/termination_f1":       rollout.get("userllm/termination_f1"),
-            "userllm/ai_detector_score":    rollout.get("userllm/ai_detector_score"),
-            "userllm/role_adherence":       rollout.get("userllm/role_adherence"),
-            "userllm/intent_adherence":     rollout.get("userllm/intent_adherence"),
+            "userllm/termination_f1": rollout.get("userllm/termination_f1"),
+            "userllm/ai_detector_score": rollout.get("userllm/ai_detector_score"),
+            "userllm/role_adherence": rollout.get("userllm/role_adherence"),
+            "userllm/intent_adherence": rollout.get("userllm/intent_adherence"),
         }
         old_output = rollout.get("output", "")
         hint = await generate_hint(
@@ -95,12 +109,12 @@ async def agent_loop(data, context):
     # ------------------------------------------------------------------
     # Evaluate new output with the same metric
     # ------------------------------------------------------------------
-    sub_scores: Dict[str, Any] = {
+    sub_scores: dict[str, Any] = {
         "userllm-hint/intent_decomposition": None,
-        "userllm-hint/termination_f1":       None,
-        "userllm-hint/ai_detector_score":    None,
-        "userllm-hint/role_adherence":       None,
-        "userllm-hint/intent_adherence":     None,
+        "userllm-hint/termination_f1": None,
+        "userllm-hint/ai_detector_score": None,
+        "userllm-hint/role_adherence": None,
+        "userllm-hint/intent_adherence": None,
     }
 
     if reward_metric == "prism":
@@ -110,11 +124,13 @@ async def agent_loop(data, context):
         ai_score = await _maybe_ai_detector_score(row, output_text)
         ai_score = ai_score if ai_score is not None else 0.0
         new_reward = (intent_decomp + term_score + ai_score) / 3.0
-        sub_scores.update({
-            "userllm-hint/intent_decomposition": intent_decomp,
-            "userllm-hint/termination_f1":       term_score,
-            "userllm-hint/ai_detector_score":    ai_score,
-        })
+        sub_scores.update(
+            {
+                "userllm-hint/intent_decomposition": intent_decomp,
+                "userllm-hint/termination_f1": term_score,
+                "userllm-hint/ai_detector_score": ai_score,
+            }
+        )
 
     elif reward_metric == "role_adherence":
         choices = _extract_choice_texts(row)
@@ -139,21 +155,21 @@ async def agent_loop(data, context):
     reward_delta = new_reward - old_reward
 
     # Per-dimension deltas for all reward types
-    dim_deltas: Dict[str, Any] = {}
+    dim_deltas: dict[str, Any] = {}
     if reward_metric == "prism":
         old_intent_decomp = rollout.get("userllm/intent_decomposition")
         old_term = rollout.get("userllm/termination_f1")
         old_ai = rollout.get("userllm/ai_detector_score")
         if old_intent_decomp is not None:
             dim_deltas["userllm-hint/intent_decomposition_delta"] = (
-                (sub_scores["userllm-hint/intent_decomposition"] or 0.0) - float(old_intent_decomp)
-            )
+                sub_scores["userllm-hint/intent_decomposition"] or 0.0
+            ) - float(old_intent_decomp)
             dim_deltas["userllm-hint/termination_f1_delta"] = (
-                (sub_scores["userllm-hint/termination_f1"] or 0.0) - float(old_term or 0.0)
-            )
+                sub_scores["userllm-hint/termination_f1"] or 0.0
+            ) - float(old_term or 0.0)
             dim_deltas["userllm-hint/ai_detector_score_delta"] = (
-                (sub_scores["userllm-hint/ai_detector_score"] or 0.0) - float(old_ai or 0.0)
-            )
+                sub_scores["userllm-hint/ai_detector_score"] or 0.0
+            ) - float(old_ai or 0.0)
     elif reward_metric == "role_adherence":
         old_role = rollout.get("userllm/role_adherence")
         if old_role is not None:
@@ -164,8 +180,8 @@ async def agent_loop(data, context):
             dim_deltas["userllm-hint/intent_adherence_delta"] = new_reward - float(old_ia)
 
     extra_info = {
-        "userllm-hint/reward":         new_reward,
-        "userllm-hint/reward_delta":   reward_delta,
+        "userllm-hint/reward": new_reward,
+        "userllm-hint/reward_delta": reward_delta,
         "userllm-hint/delta_positive": int(reward_delta > 0),
         **sub_scores,
         **dim_deltas,

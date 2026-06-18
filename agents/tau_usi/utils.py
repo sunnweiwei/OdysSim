@@ -1,8 +1,20 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import re
-import time
 from collections import Counter
 from typing import Any
-
 
 FIELD_ORDINAL = {
     "task_success": {
@@ -263,16 +275,10 @@ def extract_conversation_features(
     cleaned_texts = [_strip_agent_markup(content) for _, content in user_turns]
     lowered_texts = [text.lower() for text in cleaned_texts]
 
-    politeness_rate = _safe_mean(
-        [1.0 if POLITE_PATTERNS.search(text) else 0.0 for text in lowered_texts]
-    )
+    politeness_rate = _safe_mean([1.0 if POLITE_PATTERNS.search(text) else 0.0 for text in lowered_texts])
     short_msg_rate = _safe_mean([1.0 if count <= 3 else 0.0 for count in word_counts])
-    formality_rate = _safe_mean(
-        [1.0 if EMDASH_RE.search(text) else 0.0 for text in cleaned_texts]
-    )
-    ack_only_rate = _safe_mean(
-        [1.0 if ACK_ONLY_RE.match(text.strip()) else 0.0 for text in lowered_texts]
-    )
+    formality_rate = _safe_mean([1.0 if EMDASH_RE.search(text) else 0.0 for text in cleaned_texts])
+    ack_only_rate = _safe_mean([1.0 if ACK_ONLY_RE.match(text.strip()) else 0.0 for text in lowered_texts])
     verbosity_cv = 0.0
     if user_words_per_turn > 0:
         word_counts_float = [float(count) for count in word_counts]
@@ -288,23 +294,15 @@ def extract_conversation_features(
     has_duplicate_trigram = any(count > 10 for count in trigram_counter.values())
     repeat_rate = float(has_duplicate_trigram)
 
-    id_confuse_rate = float(
-        any(ID_CONFUSE_RE.search(text) is not None for text in lowered_texts)
-    )
+    id_confuse_rate = float(any(ID_CONFUSE_RE.search(text) is not None for text in lowered_texts))
 
-    info_frontload = (
-        sum(word_counts[:2]) / total_words if total_words > 0 else 0.0
-    )
+    info_frontload = sum(word_counts[:2]) / total_words if total_words > 0 else 0.0
     id_counts = [len(ID_DENSITY_RE.findall(text)) for text in lowered_texts]
     id_density = _safe_mean([float(count) for count in id_counts])
     opening_words = float(word_counts[0]) if word_counts else 0.0
 
-    uncertainty_rate = _safe_mean(
-        [1.0 if UNCERTAINTY_RE.search(text) else 0.0 for text in lowered_texts]
-    )
-    certainty_rate = _safe_mean(
-        [1.0 if CERTAINTY_RE.search(text) else 0.0 for text in lowered_texts]
-    )
+    uncertainty_rate = _safe_mean([1.0 if UNCERTAINTY_RE.search(text) else 0.0 for text in lowered_texts])
+    certainty_rate = _safe_mean([1.0 if CERTAINTY_RE.search(text) else 0.0 for text in lowered_texts])
 
     pushback_count = 0
     clarify_count = 0
@@ -321,15 +319,9 @@ def extract_conversation_features(
     clarify_q_rate = clarify_count / user_turn_count if user_turn_count else 0.0
     info_q_rate = info_count / user_turn_count if user_turn_count else 0.0
 
-    emotion_rate = _safe_mean(
-        [1.0 if EMOTION_PATTERNS.search(text) else 0.0 for text in lowered_texts]
-    )
-    accusation_rate = _safe_mean(
-        [1.0 if ACCUSATION_RE.search(text) else 0.0 for text in lowered_texts]
-    )
-    pivot_rate = _safe_mean(
-        [1.0 if PIVOT_RE.search(text) else 0.0 for text in lowered_texts]
-    )
+    emotion_rate = _safe_mean([1.0 if EMOTION_PATTERNS.search(text) else 0.0 for text in lowered_texts])
+    accusation_rate = _safe_mean([1.0 if ACCUSATION_RE.search(text) else 0.0 for text in lowered_texts])
+    pivot_rate = _safe_mean([1.0 if PIVOT_RE.search(text) else 0.0 for text in lowered_texts])
 
     return {
         "n_turns": float(n_turns),
@@ -353,5 +345,3 @@ def extract_conversation_features(
         "accusation_rate": float(accusation_rate),
         "pivot_rate": float(pivot_rate),
     }
-
-

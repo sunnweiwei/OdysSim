@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Pangram text analysis client.
 
@@ -19,10 +33,9 @@ import json
 import os
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-
 
 DEFAULT_BASE_URL = "https://text.api.pangram.com/v3"
 
@@ -46,7 +59,7 @@ def analyze_text(
     api_key: Optional[str] = None,
     base_url: str = DEFAULT_BASE_URL,
     timeout_s: float = 30.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze a piece of text via Pangram's `text.api.pangram.com`.
 
@@ -61,7 +74,7 @@ def analyze_text(
     api_key = (api_key or os.environ.get("PANGRAM_API_KEY") or "").strip()
     if not api_key:
         raise PangramAPIError(
-            f"Missing API key. Pass api_key=... or set env var PANGRAM_API_KEY",
+            "Missing API key. Pass api_key=... or set env var PANGRAM_API_KEY",
             status_code=-1,
         )
 
@@ -114,8 +127,13 @@ def _main(argv: list[str]) -> int:  # pragma: no cover
     import argparse
 
     p = argparse.ArgumentParser(description="Analyze text via Pangram API")
-    p.add_argument("--text", type=str, default="What are some arguments people use against adoption by gay individuals, and what are the counterarguments?", help="Text to analyze. If empty, read from stdin.")
-    p.add_argument("--api-key", type=str, default="", help=f"API key (or set PANGRAM_API_KEY).")
+    p.add_argument(
+        "--text",
+        type=str,
+        default="What are some arguments people use against adoption by gay individuals, and what are the counterarguments?",
+        help="Text to analyze. If empty, read from stdin.",
+    )
+    p.add_argument("--api-key", type=str, default="", help="API key (or set PANGRAM_API_KEY).")
     p.add_argument("--base-url", type=str, default=DEFAULT_BASE_URL, help="Service base URL.")
     p.add_argument("--timeout-s", type=float, default=30.0, help="Request timeout in seconds.")
     args = p.parse_args(argv)

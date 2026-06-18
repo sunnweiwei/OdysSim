@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 MATH_SIMULATOR_SYSTEM_PROMPT = """You are an AI assistant tasked with role-playing as a student seeking help from an AI tutor on a math problem. Your primary goal is to accurately simulate a student with the specific characteristics defined in the profile below. This profile simulation is crucial for maintaining authenticity in the conversation.
 
 # User Profile:
@@ -39,9 +53,6 @@ Conversation starts now. As the student, ask your first question to the tutor.
 Output format: Query: [your initial query]"""
 
 
-
-
-
 ASSISTANT_SYSTEM_PROMPT = (
     "You are a skilled math tutor. Your goal is to help students understand and solve "
     "problems independently. Provide guidance based on their questions or mistakes. "
@@ -50,13 +61,7 @@ ASSISTANT_SYSTEM_PROMPT = (
 )
 
 
-ASSISTANT_FIRST_TURN_USER_TEMPLATE = (
-    "Here is the problem that you will tutor me on:\n{problem}\n\n{query}"
-)
-
-
-
-
+ASSISTANT_FIRST_TURN_USER_TEMPLATE = "Here is the problem that you will tutor me on:\n{problem}\n\n{query}"
 
 
 TERMINATION_PROMPT_TEMPLATE = """You are given a sequence of **User Queries** from a math tutoring conversation, along with the **Math Problem**. Your task is to determine the optimal point to end the conversation based on the user's learning progression.
@@ -95,8 +100,6 @@ End the conversation when ANY of these occur:
 - Circular queries with no progress."""
 
 
-
-
 MATH_SIMULATOR_WRITING_STYLE_FEATURES_TEXT = """- Frequency of Grammatical Errors: How often does the user break basic grammar rules?
 - Sentence Complexity: Does the user primarily use simple sentences, or do they also use compound and complex structures?
 - Spelling Consistency: Does the user often misspell words or make typos, including mathematical terms?
@@ -109,8 +112,6 @@ MATH_SIMULATOR_WRITING_STYLE_FEATURES_TEXT = """- Frequency of Grammatical Error
 - Sentence Fragmentation: Does the user tend to use fragmented sentences, often breaking up their thought process into shorter, separate queries?
 - Use of Conjunctions: How frequently does the user employ conjunctions such as and, but, or?
 - Use of Slang, Contractions, or Emojis: Does the user employ slang, contractions, emoticons, or emojis, and how frequently?"""
-
-
 
 
 MATH_SIMULATOR_INTERACTION_STYLE_FEATURES_TEXT = """- Message Length: What is the range of the length of the user's queries?
@@ -130,8 +131,6 @@ MATH_SIMULATOR_INTERACTION_STYLE_FEATURES_TEXT = """- Message Length: What is th
 - Incremental Learning: Does the user show a pattern of gradual understanding, requiring multiple examples or steps to grasp a concept?
 - Depth of Inquiry: How frequently does the user ask for detailed explanations and clarifications?
 - Meta-Cognitive Awareness: Does the user exhibit awareness of their learning process by summarizing or reflecting on the steps?"""
-
-
 
 
 EVAL_SIMULATOR_WRITING_STYLE_LIKERT_PROMPT_TEMPLATE = """You are an expert in analyzing math tutoring conversations. Your task is to evaluate how similar a simulated user's writing style is to a real user's writing style in their queries to an AI assistant.
@@ -174,8 +173,6 @@ Rate the overall writing style similarity on a scale of 1-5:
 - Focus on the user queries only, not the tutor responses."""
 
 
-
-
 EVAL_SIMULATOR_INTERACTION_STYLE_LIKERT_PROMPT_TEMPLATE = """You are an expert in analyzing math tutoring conversations. Your task is to evaluate how similar a simulated user's interaction style is to a real user's interaction style in their conversation with an AI tutor.
 
 # Input
@@ -214,8 +211,6 @@ Rate the overall interaction style similarity on a scale of 1-5:
 # Note
 - Focus on user interaction style, not tutor quality.
 - Your goal is to determine how closely the simulated user matches the real user in interaction style."""
-
-
 
 
 EVAL_SIMULATOR_TURING_TEST_PROMPT_TEMPLATE = """You are an expert in conversation analysis and AI detection. You will compare two math tutoring conversations, each featuring a student interacting with an AI tutor. One student is a real human and the other is an AI user simulator. Your goal is to determine which conversation features the human user and provide a single confidence rating for your decision.
@@ -270,8 +265,6 @@ Provide your decision using the following JSON format:
 """
 
 
-
-
 EVAL_SIMULATOR_ATTRIBUTE_FULFILLMENT_PROMPT_TEMPLATE = """You are an expert in communication analysis and AI interaction evaluation. Your task is to analyze the student messages and determine whether they match the provided feature description.
 
 # Feature Description
@@ -296,8 +289,6 @@ Definition: The student's messages do not demonstrate the characteristics descri
 * Analysis: [Provide a thorough analysis comparing the student's {feature_category} to the feature description, citing specific examples and describing the overall pattern]
 * Classification: [State either "Match" or "No Match"]
 """
-
-
 
 
 EVAL_ASSISTANT_INTERACTION_RATING_PROMPT_TEMPLATE = """You are an expert in mathematics education and tutoring evaluation. Your task is to analyze a math tutoring conversation between a tutor and a student, then rate the tutor's performance on a scale of 1 to 10 based on specific criteria.
@@ -341,8 +332,6 @@ Provide a detailed analysis of the tutor's performance, followed by a numerical 
 * Rating: [Provide your rating as a number between 1 and 10]"""
 
 
-
-
 EVAL_ANSWER_EXTRACTION_PROMPT_TEMPLATE = """You are a math expert. Your task is to extract the student's final answer from a given conversation about a math problem. The conversation include the interaction between the student and a tutor. Your goal is to identify and extract only the student's final answer to the math problem being discussed.
 
 <Math Problem>
@@ -366,9 +355,6 @@ First, provide a brief reasoning process explaining how you identified the stude
 4. Do not solve or evaluate the math problem yourself; simply extract the answer from the conversation."""
 
 
-
-
-
 EVAL_ASSISTANT_CORRECTNESS_PROMPT_TEMPLATE = """You are a math expert. Your task is to evaluate whether the student's answer matches the correct answer. In mathematics, answers can be expressed in various formats and may include LaTeX notation. Determine the correctness of the student's answer based on its equivalence to the correct answer. Output "Correct" if the answer is correct; otherwise, output "Incorrect".
 
 # Input:
@@ -382,8 +368,6 @@ First, provide a reasoning process evaluating the correctness of the student's a
 # Note:
 1. it's okay that the student doesn't include the base, as long as the number is correct.
 2. You only need to compare the student's answer with the correct answer. Do not solve the problem yourself."""
-
-
 
 
 EVAL_SIMULATOR_ALL_ATTRIBUTES_FULFILLMENT_PROMPT_TEMPLATE = """You are an expert in communication analysis and AI interaction evaluation. Your task is to analyze the student messages in the tutoring conversation below and determine whether they match each of the provided feature descriptions.
@@ -411,8 +395,6 @@ Return a JSON array where each element corresponds to one feature in the same or
     ...
   ]
 }}"""
-
-
 
 
 EVAL_ASSISTANT_CORRECTNESS_COMBINED_PROMPT_TEMPLATE = """You are a math expert. Given a math tutoring conversation, extract the student's final answer and determine if it is correct.

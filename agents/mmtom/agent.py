@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 MMToM agent for Harmony evaluation.
 
@@ -16,8 +30,9 @@ both the context narrative and the actual question with answer choices.
 Scoring: exact match of extracted answer letter (a/b) vs. correct answer.
 """
 
-import re
 import logging
+import re
+
 from agents.utils import Agent, process_post_chat, remove_think
 
 logger = logging.getLogger(__name__)
@@ -115,11 +130,14 @@ async def agent_loop(data, context):
     is_correct = predicted == correct_answer
     reward = 1.0 if is_correct else 0.0
 
-    output = await agent.get_agent_output(reward, extra_info={
-        "all/score": reward,
-        "mmtom/reward": reward,
-        "mmtom/response_length": len(response.split()) if response else 0,
-    })
+    output = await agent.get_agent_output(
+        reward,
+        extra_info={
+            "all/score": reward,
+            "mmtom/reward": reward,
+            "mmtom/response_length": len(response.split()) if response else 0,
+        },
+    )
     await process_post_chat(data, context, agent.chat, output)
     return output
 

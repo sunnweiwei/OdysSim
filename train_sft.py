@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 SFT trainer entry point. Mirrors train_ppo.py but uses SFTRayTrainer.
 
@@ -11,7 +25,7 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
-from verl.trainer.main_ppo import TaskRunner, run_ppo
+from verl.trainer.main_ppo import TaskRunner
 from verl.trainer.ppo.ray_trainer import Role
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.utils.device import auto_set_device
@@ -28,10 +42,9 @@ class SFTTaskRunner(TaskRunner):
     def run(self, config):
         from pprint import pprint
 
-        from verl.utils.fs import copy_to_local
-        from verl.utils import hf_processor, hf_tokenizer
-
         from sft.trainer import SFTRayTrainer
+        from verl.utils import hf_processor, hf_tokenizer
+        from verl.utils.fs import copy_to_local
 
         print(f"SFTTaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
         pprint(OmegaConf.to_container(config, resolve=True))
@@ -62,7 +75,9 @@ class SFTTaskRunner(TaskRunner):
         rl_test_files = config.data.get("rl_test_files")
         if rl_test_files:
             val_reward_fn = load_reward_manager(
-                config, tokenizer, num_examine=1,
+                config,
+                tokenizer,
+                num_examine=1,
                 **config.reward_model.get("reward_kwargs", {}),
             )
         else:
@@ -91,6 +106,7 @@ def main(config):
 
     if not ray.is_initialized():
         from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
+
         default_runtime_env = get_ppo_ray_runtime_env()
         ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
         runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})

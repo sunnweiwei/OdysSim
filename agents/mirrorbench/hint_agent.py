@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 MirrorBench hint agent — measures improvement from judge-derived hints.
 
@@ -5,16 +19,15 @@ Runs a fresh simulation using the hint-augmented user-proxy prompt
 (with real conversation as style reference) and returns the new reward.
 """
 
-import asyncio
 import logging
 
-from agents.utils import Agent, process_post_chat, split_think, call_openai, truncate_text, truncate_turns_for_reference
-from agents.mirrorbench.hint import get_teacher_system_prompt
 from agents.mirrorbench.agent import (
     build_assistant_mirror_system_prompt,
     format_conversation,
     run_gteval,
 )
+from agents.mirrorbench.hint import get_teacher_system_prompt
+from agents.utils import Agent, call_openai, split_think, truncate_turns_for_reference
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +90,7 @@ async def agent_loop(data: dict, context):
                 break
         elif role == "assistant":
             assistant_messages = [{"role": "system", "content": assistant_system_prompt}] + simulation_turns
-            response = await call_openai(assistant_messages, model='gpt-5.4-nano', reasoning_effort='none')
+            response = await call_openai(assistant_messages, model="gpt-5.4-nano", reasoning_effort="none")
             if response:
                 simulation_turns.append({"role": "assistant", "content": response})
 

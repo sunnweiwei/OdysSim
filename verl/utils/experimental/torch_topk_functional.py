@@ -27,7 +27,6 @@ from typing import Optional
 
 import torch
 
-
 # ---------------------------------------------------------------------------
 # Chunk-level forward / backward helpers
 # ---------------------------------------------------------------------------
@@ -263,12 +262,12 @@ class FusedLinearForPPOTopKFunction(torch.autograd.Function):
             dhidden_states = dhidden_states.view(orig_batch_size, -1, hidden_size)
 
         return (
-            dhidden_states,   # hidden_states
-            dvocab_weights,   # vocab_weights
-            None,             # input_ids
-            None,             # gather_ids
-            None,             # temperature
-            None,             # chunk_size
+            dhidden_states,  # hidden_states
+            dvocab_weights,  # vocab_weights
+            None,  # input_ids
+            None,  # gather_ids
+            None,  # temperature
+            None,  # chunk_size
         )
 
 

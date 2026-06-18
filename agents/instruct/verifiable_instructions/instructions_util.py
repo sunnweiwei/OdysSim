@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # coding=utf-8
 # Copyright 2024 The Google Research Authors.
 #
@@ -21,6 +35,7 @@ import re
 
 try:
     import immutabledict
+
     _immutabledict = immutabledict.immutabledict
 except ImportError:
     immutabledict = None
@@ -28,6 +43,7 @@ except ImportError:
 
 try:
     import nltk
+
     _NLTK_AVAILABLE = True
 except ImportError:
     nltk = None
@@ -1660,7 +1676,7 @@ def count_words(text):
     return num_words
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _get_sentence_tokenizer():
     return nltk.data.load("nltk:tokenizers/punkt/english.pickle")
 

@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 HumanLLM agent — 20-way Item Selection MC eval.
 
@@ -23,12 +37,10 @@ Input row (set by prepare_dataset.process_humanllm_item_select_*):
 
 from __future__ import annotations
 
-import copy
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from agents.utils import Agent, process_post_chat, remove_think
-
 
 TOP_K = 5
 
@@ -45,12 +57,10 @@ SYSTEM_PROMPT = (
     f"Example: <answer>C,A,M,B,K</answer>\n"
 )
 
-ANSWER_PATTERN = re.compile(
-    r"<answer>([A-T](?:,[A-T]){" + str(TOP_K - 1) + r"})</answer>"
-)
+ANSWER_PATTERN = re.compile(r"<answer>([A-T](?:,[A-T]){" + str(TOP_K - 1) + r"})</answer>")
 
 
-def _raw_prompt_from_row(row: Dict[str, Any]) -> str:
+def _raw_prompt_from_row(row: dict[str, Any]) -> str:
     prompt_text = str(row.get("prompt_text") or "").strip()
     if prompt_text:
         return prompt_text
@@ -71,16 +81,16 @@ def _reformat_history(text: str) -> str:
     items = []
     for i, m in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        body = text[m.end():end].strip().rstrip(",;")
+        body = text[m.end() : end].strip().rstrip(",;")
         items.append(f"History {i + 1}: {body}")
     out = "\n".join(items)
     return (head + "\n" + out) if head else out
 
 
-def _build_prompt_from_row(row: Dict[str, Any]) -> str:
+def _build_prompt_from_row(row: dict[str, Any]) -> str:
     """Return the user prompt with history one-per-line and candidates relabeled A-T."""
     raw = _raw_prompt_from_row(row)
-    candidates: List[str] = list(row.get("candidates") or [])
+    candidates: list[str] = list(row.get("candidates") or [])
     if not raw:
         return raw
     if not candidates:
@@ -93,15 +103,11 @@ def _build_prompt_from_row(row: Dict[str, Any]) -> str:
 
     head = _reformat_history(head)
 
-    lines = [
-        f"{LETTERS[i]}: {str(c).strip()}"
-        for i, c in enumerate(candidates)
-        if i < len(LETTERS)
-    ]
+    lines = [f"{LETTERS[i]}: {str(c).strip()}" for i, c in enumerate(candidates) if i < len(LETTERS)]
     return f"{head}\n\n" + "\n".join(lines)
 
 
-def _predict_ranking(model_output: str, candidates: List[str]) -> Optional[List[int]]:
+def _predict_ranking(model_output: str, candidates: list[str]) -> Optional[list[int]]:
     """Return the model's top-K ranked 0-based candidate indices, or None.
 
     Strict matching: requires exactly the pattern
@@ -118,13 +124,14 @@ def _predict_ranking(model_output: str, candidates: List[str]) -> Optional[List[
     letters = m.group(1).split(",")
     if len(letters) != TOP_K or len(set(letters)) != TOP_K:
         return None
-    indices: List[int] = []
+    indices: list[int] = []
     for ch in letters:
         idx = LETTERS.index(ch)
         if idx >= len(candidates):
             return None
         indices.append(idx)
     return indices
+
 
 async def agent_loop(data: dict, context):
     """HumanLLM Item Selection: 20-way MC."""
@@ -133,7 +140,7 @@ async def agent_loop(data: dict, context):
     if not prompt:
         raise ValueError("HumanLLM item-selection row is missing prompt text.")
 
-    candidates: List[str] = list(row.get("candidates") or [])
+    candidates: list[str] = list(row.get("candidates") or [])
     if not candidates:
         raise ValueError("HumanLLM item-selection row is missing 'candidates'.")
 
@@ -190,7 +197,7 @@ async def agent_loop(data: dict, context):
             # "humanllm/rank": rank,
             # "humanllm/has_prediction": 1.0 if has_prediction else 0.0,
             "humanllm/response_length": len(response.split()) if response else 0,
-            "all/score": reward
+            "all/score": reward,
         },
     )
     await process_post_chat(data, context, agent.chat, output)

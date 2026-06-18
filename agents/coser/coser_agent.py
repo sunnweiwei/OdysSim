@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 CoSER agent for Harmony evaluation.
 
@@ -14,41 +28,59 @@ import copy
 import json
 import logging
 import random
-import re
 import uuid
-from pydantic import BaseModel, Field, ConfigDict
-from agents.utils import Agent, call_openai, call_openai_parse, process_post_chat, remove_think, get_judge_model, get_judge_reasoning
-from agents.coser.prompt import (
-    ENVIRONMENT, NSP, SPECIAL_CHARACTERS,
-    CRITIC_TEMPLATE, COMBINED_CRITIC_TEMPLATE, DIMENSION_DETAILS, DIMENSIONS,  # noqa: F401
-    get_character_prompt, get_environment_prompt, get_nsp_prompt,
-    remove_inner_thoughts, add_speaker_name, extract_nsp,
-    calculate_bleu_rouge, extract_json_from_text
-)
 
+from pydantic import BaseModel, ConfigDict, Field
+
+from agents.coser.prompt import (
+    COMBINED_CRITIC_TEMPLATE,
+    CRITIC_TEMPLATE,  # noqa: F401
+    DIMENSION_DETAILS,
+    DIMENSIONS,
+    ENVIRONMENT,
+    NSP,
+    add_speaker_name,
+    calculate_bleu_rouge,
+    extract_json_from_text,
+    extract_nsp,
+    get_character_prompt,
+    get_environment_prompt,
+    get_nsp_prompt,
+    remove_inner_thoughts,
+)
+from agents.utils import (
+    Agent,
+    call_openai,
+    call_openai_parse,
+    get_judge_model,
+    get_judge_reasoning,
+    process_post_chat,
+    remove_think,
+)
 
 # ---------------------------------------------------------------------------
 # Simple agent class for managing conversation state
 # ---------------------------------------------------------------------------
 
+
 class SimpleAgent:
     """Lightweight agent that manages conversation history and LLM calls."""
 
     def __init__(self, system_prompt):
-        self.messages = [{"role": 'system', "content": system_prompt}]
+        self.messages = [{"role": "system", "content": system_prompt}]
 
     async def step(self):
         """Generate a response and append it to history."""
-        response = await call_openai(self.messages, model='gpt-5.4-nano', reasoning_effort='none')
+        response = await call_openai(self.messages, model="gpt-5.4-nano", reasoning_effort="none")
         if not response or response.startswith("Error after"):
             return None
-        self.append({'role': 'assistant', 'content': response})
+        self.append({"role": "assistant", "content": response})
         return response
 
     def append(self, turn):
         """Append a message to history, merging consecutive same-role messages."""
-        role = turn['role']
-        message = turn['content']
+        role = turn["role"]
+        message = turn["content"]
         if message:
             if self.messages and self.messages[-1]["role"] == role:
                 self.messages[-1]["content"] += "\n\n" + message
@@ -60,9 +92,11 @@ class SimpleAgent:
 # Pydantic schema for structured LLM judge output
 # ---------------------------------------------------------------------------
 
+
 class DimEval(BaseModel):
     reasoning: str
     score: int
+
 
 class CoserEvalResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -76,8 +110,11 @@ class CoserEvalResult(BaseModel):
 # Evaluation: judge a single simulation
 # ---------------------------------------------------------------------------
 
+
 async def evaluate_simulation(
-    simulation, circumstance, involved_character_profiles,
+    simulation,
+    circumstance,
+    involved_character_profiles,
     continue_from=0,
     judge_mode="combined",
     structured_output=False,
@@ -90,14 +127,12 @@ async def evaluate_simulation(
     # Clean simulation (remove NSP messages and inner thoughts)
     sim_clean = [m for m in simulation if m["role"] != NSP]
     sim_clean = [
-        m if m["role"] == ENVIRONMENT else {**m, "content": remove_inner_thoughts(m["content"])}
-        for m in sim_clean
+        m if m["role"] == ENVIRONMENT else {**m, "content": remove_inner_thoughts(m["content"])} for m in sim_clean
     ]
 
     reference = circumstance["dialogues"]
     reference = [
-        m if m["character"] == ENVIRONMENT else {**m, "message": remove_inner_thoughts(m["message"])}
-        for m in reference
+        m if m["character"] == ENVIRONMENT else {**m, "message": remove_inner_thoughts(m["message"])} for m in reference
     ]
 
     simulation_str = "\n\n".join([f"{m['role']}: {m['content']}".strip("\n") for m in sim_clean])
@@ -105,10 +140,9 @@ async def evaluate_simulation(
 
     book_title = circumstance["book"]
     scenario_str = circumstance["scenario"]
-    character_profile_str = "\n\n".join([
-        f"### {char}\n\n{profile.strip()}"
-        for char, profile in involved_character_profiles.items()
-    ])
+    character_profile_str = "\n\n".join(
+        [f"### {char}\n\n{profile.strip()}" for char, profile in involved_character_profiles.items()]
+    )
     major_characters = circumstance["major_characters"]
 
     # Additional instructions when using continue_from
@@ -181,12 +215,21 @@ async def evaluate_simulation(
                 for attempt in range(max_retries):
                     try:
                         if structured_output:
-                            parsed = await call_openai_parse(judge_messages, CoserEvalResult, model=get_judge_model('gpt-5.4-mini'), reasoning_effort=get_judge_reasoning('low'))
+                            parsed = await call_openai_parse(
+                                judge_messages,
+                                CoserEvalResult,
+                                model=get_judge_model("gpt-5.4-mini"),
+                                reasoning_effort=get_judge_reasoning("low"),
+                            )
                             if parsed and all(validate_dim(parsed, dim) for dim in DIMENSIONS):
                                 break
                             parsed = None
                         else:
-                            response = await call_openai(judge_messages, model=get_judge_model('gpt-5.4-mini'), reasoning_effort=get_judge_reasoning('low'))
+                            response = await call_openai(
+                                judge_messages,
+                                model=get_judge_model("gpt-5.4-mini"),
+                                reasoning_effort=get_judge_reasoning("low"),
+                            )
                             if response:
                                 parsed = await extract_json_from_text(response)
                                 if parsed and all(validate_dim(parsed, dim) for dim in DIMENSIONS):
@@ -257,6 +300,7 @@ async def evaluate_simulation(
 # agent_loop: Harmony interface
 # ---------------------------------------------------------------------------
 
+
 async def agent_loop(data, context):
     """
     CoSER: Simulate and evaluate a single GCA circumstance.
@@ -289,7 +333,7 @@ async def agent_loop(data, context):
             "case_id": str,
         }
     """
-    item = data['extra_info']
+    item = data["extra_info"]
     circumstance = item["circumstance"]
     if isinstance(circumstance, str):
         circumstance = json.loads(circumstance)
@@ -324,7 +368,7 @@ async def agent_loop(data, context):
             involved_character_profiles[character] = profile
 
     # Create agents — NSP & ENVIRONMENT use OpenAI (SimpleAgent); characters use the RL model (Agent)
-    init_msg = {'role': 'user', 'content': '===Conversation Start===\n\n'}
+    init_msg = {"role": "user", "content": "===Conversation Start===\n\n"}
     character_agents = {}
     for character in speaking_characters_w_env + [NSP]:
         if character == NSP:
@@ -335,25 +379,34 @@ async def agent_loop(data, context):
             agent.append(init_msg)
         else:
             motivation = next(
-                (c.get("motivation", "") or c.get("thought", "")
-                 for c in conversation["key_characters"] if c.get("name") == character), ""
+                (
+                    c.get("motivation", "") or c.get("thought", "")
+                    for c in conversation["key_characters"]
+                    if c.get("name") == character
+                ),
+                "",
             )
             system_prompt = get_character_prompt(
-                book_title, character,
+                book_title,
+                character,
                 involved_character_profiles.get(character, ""),
-                plot["summary"], conversation["scenario"], motivation,
+                plot["summary"],
+                conversation["scenario"],
+                motivation,
                 thoughtless=wo_thought,
                 other_character_profiles=involved_character_profiles,
             )
-            system_prompt = system_prompt.strip('\n')
+            system_prompt = system_prompt.strip("\n")
             system_prompt += (
-                '\n\nSpeak concisely as humans, instead of being verbose. '
-                'Limit your response to 60 words.\n\nAlways respond in English.'
+                "\n\nSpeak concisely as humans, instead of being verbose. "
+                "Limit your response to 60 words.\n\nAlways respond in English."
             )
             agent = Agent(
                 context.llm_client,
-                [{'role': 'system', 'content': system_prompt}, init_msg],
-                context.tokenizer, context.config, prompt_turn=2,
+                [{"role": "system", "content": system_prompt}, init_msg],
+                context.tokenizer,
+                context.config,
+                prompt_turn=2,
             )
         character_agents[character] = agent
 
@@ -372,7 +425,7 @@ async def agent_loop(data, context):
         speaker_agent = character_agents[current_speaker]
         if i_round < continue_from:
             response = dialogues[i_round]["message"] if i_round < len(dialogues) else ""
-            speaker_agent.append({'role': 'assistant', 'content': response})
+            speaker_agent.append({"role": "assistant", "content": response})
         else:
             response = await speaker_agent.step()
             if not response:
@@ -387,7 +440,7 @@ async def agent_loop(data, context):
         broadcast = add_speaker_name(remove_inner_thoughts(clean), current_speaker)
         for name, agent in character_agents.items():
             if name != current_speaker:
-                agent.append({'role': 'user', 'content': broadcast})
+                agent.append({"role": "user", "content": broadcast})
 
         # --- NSP turn: determine next speaker ---
         nsp_agent = character_agents[NSP]
@@ -406,23 +459,25 @@ async def agent_loop(data, context):
             current_speaker = nsp_parsed
             valid = True
         else:
-            candidates = (
-                (set(major_characters + [ENVIRONMENT]) - {current_speaker})
-                or set(speaking_characters_w_env) - {current_speaker}
-            )
+            candidates = (set(major_characters + [ENVIRONMENT]) - {current_speaker}) or set(
+                speaking_characters_w_env
+            ) - {current_speaker}
             current_speaker = random.choice(list(candidates))
             valid = False
         agent_conversations.append({"role": NSP, "content": nsp_parsed})
         if not valid:
             # step() appended nsp_raw; fix to nsp_parsed and re-inject system prompt
             nsp_agent.messages[-1]["content"] = nsp_parsed
-            nsp_agent.append({'role': 'user', 'content': nsp_agent.messages[0]["content"]})
+            nsp_agent.append({"role": "user", "content": nsp_agent.messages[0]["content"]})
 
     # Phase 2: Evaluation
     import time
+
     _eval_start = time.monotonic()
     reward, eval_result, parsed_judge = await evaluate_simulation(
-        agent_conversations, circumstance, involved_character_profiles,
+        agent_conversations,
+        circumstance,
+        involved_character_profiles,
         continue_from=continue_from,
         structured_output=True,
     )
@@ -435,8 +490,8 @@ async def agent_loop(data, context):
         "coser/eval_time": eval_time,
         **{f"coser/{dim}": eval_result[dim]["score"] for dim in DIMENSIONS if dim in eval_result},
     }
-    extra_info['all/score'] = reward
-    extra_info['all/score_v1'] = reward
+    extra_info["all/score"] = reward
+    extra_info["all/score_v1"] = reward
     outputs = []
     for name in generated_speakers:
         if character_agents[name].think_format_correct() == 0 and context.is_train:
@@ -452,15 +507,16 @@ async def agent_loop(data, context):
     # ===========================================================================
     hint = None
     # Build student conversation string for hint generation
-    student_conv_str = "\n\n".join(
-        f"{m['role']}: {m['content']}"
-        for m in agent_conversations if m["role"] != NSP
-    )
+    student_conv_str = "\n\n".join(f"{m['role']}: {m['content']}" for m in agent_conversations if m["role"] != NSP)
     # hint only for low-score rollout
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and reward <= 0.2
-            and outputs and context.global_step < 30):
+    if (
+        getattr(context.config.algorithm, "agent_version", None) == "copy"
+        and reward <= 0.2
+        and outputs
+        and context.global_step < 30
+    ):
         from agents.coser.hint import generate_hint
+
         hint = await generate_hint(
             circumstance=circumstance,
             involved_character_profiles=involved_character_profiles,
@@ -471,26 +527,24 @@ async def agent_loop(data, context):
         if hint:
             if parsed_judge is None:
                 parsed_judge = {}
-            parsed_judge['hint'] = hint
+            parsed_judge["hint"] = hint
 
-    if (getattr(context.config.algorithm, 'agent_version', None) == 'copy'
-            and context.is_train
-            and hint
-            and outputs):
+    if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train and hint and outputs:
         from agents.coser.hint_agent import agent_loop as hint_agent_loop
-        data['extra_info']['hint'] = hint
-        data['extra_info']['old_reward'] = reward
+
+        data["extra_info"]["hint"] = hint
+        data["extra_info"]["old_reward"] = reward
 
         hint_outputs = await hint_agent_loop(data, context)
 
         if hint_outputs:
             # Pair each hint output with a copy carrying the original prompt_ids
             extra_outputs = []
-            for base_out, hint_out in zip(outputs, hint_outputs):
+            for base_out, hint_out in zip(outputs, hint_outputs, strict=False):
                 copy_out = copy.deepcopy(hint_out)
                 copy_out.prompt_ids = copy.deepcopy(base_out.prompt_ids)
                 copy_out.extra_fields["gen_uid"] = str(uuid.uuid4())
-                hint_out.extra_fields["agent_role"] = 'hint_agent'
+                hint_out.extra_fields["agent_role"] = "hint_agent"
                 extra_outputs.extend([copy_out])
             # outputs = outputs + extra_outputs[:2]
     # ===========================================================================

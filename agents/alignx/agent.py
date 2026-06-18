@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 AlignX agent_loop — personalized 2-way preference selection.
 
@@ -37,10 +51,9 @@ from __future__ import annotations
 
 import random
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from agents.utils import Agent, process_post_chat, remove_think
-
 
 SYSTEM_PROMPT = (
     "You are predicting which response a specific user would prefer. "
@@ -61,7 +74,7 @@ def _predict_choice(model_output: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def _format_persona_context(row: Dict[str, Any]) -> str:
+def _format_persona_context(row: dict[str, Any]) -> str:
     """Build the personalization preamble.
 
     Prefers `demographic`; falls back to `profile` when demographic is empty
@@ -86,12 +99,7 @@ def _format_persona_context(row: Dict[str, Any]) -> str:
             c = (pair.get("chosen") or "").strip()
             r = (pair.get("rejected") or "").strip()
             if p and c and r:
-                examples.append(
-                    f"Example {i+1}:\n"
-                    f"Post: {p}\n"
-                    f"This user preferred: {c}\n"
-                    f"Over: {r}"
-                )
+                examples.append(f"Example {i + 1}:\nPost: {p}\nThis user preferred: {c}\nOver: {r}")
         if examples:
             parts.append("### Prior preference examples for this user\n\n" + "\n\n".join(examples))
 
@@ -110,7 +118,7 @@ def _format_persona_context(row: Dict[str, Any]) -> str:
     return "\n\n".join(parts)
 
 
-def _build_prompt(row: Dict[str, Any], a_text: str, b_text: str) -> str:
+def _build_prompt(row: dict[str, Any], a_text: str, b_text: str) -> str:
     persona = _format_persona_context(row)
     post = (row.get("raw_prompt") or "").strip()
     parts = []
@@ -123,7 +131,7 @@ def _build_prompt(row: Dict[str, Any], a_text: str, b_text: str) -> str:
     return "\n\n".join(parts)
 
 
-async def agent_loop(data: Dict[str, Any], context):
+async def agent_loop(data: dict[str, Any], context):
     row = data.get("extra_info") or {}
     prompt = (row.get("raw_prompt") or "").strip()
     chosen = (row.get("chosen") or "").strip()

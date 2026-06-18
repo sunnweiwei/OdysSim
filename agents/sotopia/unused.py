@@ -1,25 +1,45 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import asyncio
-import json
-import re
 import logging
-import json
+
 from agents.utils import call_openai
 
 logger = logging.getLogger(__name__)
 
-DIMENSIONS = ['believability', 'relationship', 'knowledge', 'secret', 'social_rules', 'financial_and_material_benefits', 'goal']
+DIMENSIONS = [
+    "believability",
+    "relationship",
+    "knowledge",
+    "secret",
+    "social_rules",
+    "financial_and_material_benefits",
+    "goal",
+]
 
 
 ACTION_TYPES = ["speak", "non-verbal communication", "action", "leave"]
 
 # Brief rubric descriptions for the teacher prompt (concise for in-context use)
 _RUBRIC_BRIEF = {
-    "goal":                            "0–10 · Did you fully achieve your social goal? (highest weight)",
-    "relationship":                    "-5–5 · Did the interaction improve or damage your relationship with the partner?",
-    "knowledge":                       "0–10 · Did you gain useful new information through the interaction?",
-    "believability":                   "0–10 · Did you act naturally and consistently with your character?",
-    "secret":                          "-10–0 · Did you keep your secrets / hidden intentions undisclosed?",
-    "social_rules":                    "-10–0 · Did you avoid violating moral or social norms?",
+    "goal": "0–10 · Did you fully achieve your social goal? (highest weight)",
+    "relationship": "-5–5 · Did the interaction improve or damage your relationship with the partner?",
+    "knowledge": "0–10 · Did you gain useful new information through the interaction?",
+    "believability": "0–10 · Did you act naturally and consistently with your character?",
+    "secret": "-10–0 · Did you keep your secrets / hidden intentions undisclosed?",
+    "social_rules": "-10–0 · Did you avoid violating moral or social norms?",
     "financial_and_material_benefits": "-5–5 · Did the interaction help or hurt your material interests?",
 }
 
@@ -242,13 +262,13 @@ Use this format:
 
 ### Rubric Coaching
 
-**Goal (score: {actor_scores.get('goal', {}).get('raw', '?')}/10 — CRITICAL)**
+**Goal (score: {actor_scores.get("goal", {}).get("raw", "?")}/10 — CRITICAL)**
 [What a 9-10 looks like. What was missing. One concrete fix.]
 
-**Relationship (score: {actor_scores.get('relationship', {}).get('raw', '?')} — HIGH)**
+**Relationship (score: {actor_scores.get("relationship", {}).get("raw", "?")} — HIGH)**
 [What a +4/+5 looks like. What was missing. One concrete fix.]
 
-**Knowledge (score: {actor_scores.get('knowledge', {}).get('raw', '?')}/10 — HIGH)**
+**Knowledge (score: {actor_scores.get("knowledge", {}).get("raw", "?")}/10 — HIGH)**
 [What a high score looks like. What was missing. One concrete fix.]
 
 [Include other dims only if score was clearly suboptimal]
@@ -276,12 +296,12 @@ def _build_hint_prompt_v13(
 
     # Concise rubric criteria for each dimension (what judges actually look for)
     _rubric_criteria = {
-        "goal":                        "Did the agent fully achieve their stated social goal? 0=no progress, 10=complete achievement.",
-        "relationship":                "Did the interaction improve (-5 to +5) the relationship? Positive = strengthened bonds/trust, negative = damaged relationship.",
-        "knowledge":                   "Did the agent gain new, important information? 0=nothing new learned, 10=highly valuable new knowledge gained.",
-        "believability":               "Did the agent behave naturally and consistently with their character traits? Penalize repetition, identity confusion, unnatural politeness.",
-        "secret":                      "Did the agent keep their secrets/hidden intentions undisclosed? 0=nothing revealed, -10=critical secrets leaked.",
-        "social_rules":                "Did the agent avoid violating moral rules or laws? 0=no violations, negative=violations occurred.",
+        "goal": "Did the agent fully achieve their stated social goal? 0=no progress, 10=complete achievement.",
+        "relationship": "Did the interaction improve (-5 to +5) the relationship? Positive = strengthened bonds/trust, negative = damaged relationship.",
+        "knowledge": "Did the agent gain new, important information? 0=nothing new learned, 10=highly valuable new knowledge gained.",
+        "believability": "Did the agent behave naturally and consistently with their character traits? Penalize repetition, identity confusion, unnatural politeness.",
+        "secret": "Did the agent keep their secrets/hidden intentions undisclosed? 0=nothing revealed, -10=critical secrets leaked.",
+        "social_rules": "Did the agent avoid violating moral rules or laws? 0=no violations, negative=violations occurred.",
         "financial_and_material_benefits": "Did the interaction help (+5) or hurt (-5) material interests? 0=neutral.",
     }
 
@@ -358,12 +378,12 @@ def _build_hint_prompt_v14(
     """v14 — Front-loaded v13: most critical action first, then full per-dim rubric + example lines."""
 
     _rubric_criteria = {
-        "goal":                        "Did the agent fully achieve their stated social goal? 0=no progress, 10=complete achievement.",
-        "relationship":                "Did the interaction improve (-5 to +5) the relationship? Positive=strengthened trust/bonds, negative=damaged.",
-        "knowledge":                   "Did the agent gain new, important information? 0=nothing new, 10=highly valuable knowledge gained.",
-        "believability":               "Did the agent behave naturally and consistently with their character? Penalize repetition, identity confusion, unnatural politeness.",
-        "secret":                      "Did the agent keep secrets/hidden intentions undisclosed? 0=nothing revealed, -10=critical secrets leaked.",
-        "social_rules":                "Did the agent avoid violating moral rules or laws? 0=no violations, negative=violations.",
+        "goal": "Did the agent fully achieve their stated social goal? 0=no progress, 10=complete achievement.",
+        "relationship": "Did the interaction improve (-5 to +5) the relationship? Positive=strengthened trust/bonds, negative=damaged.",
+        "knowledge": "Did the agent gain new, important information? 0=nothing new, 10=highly valuable knowledge gained.",
+        "believability": "Did the agent behave naturally and consistently with their character? Penalize repetition, identity confusion, unnatural politeness.",
+        "secret": "Did the agent keep secrets/hidden intentions undisclosed? 0=nothing revealed, -10=critical secrets leaked.",
+        "social_rules": "Did the agent avoid violating moral rules or laws? 0=no violations, negative=violations.",
         "financial_and_material_benefits": "Did the interaction help (+5) or hurt (-5) material interests? 0=neutral.",
     }
 
@@ -430,12 +450,12 @@ def _build_hint_prompt_v15(
     """v15 — Deep goal+relationship + concise rest: maximum depth on the two highest-weight dims."""
 
     _rubric_criteria = {
-        "goal":                        "Did the agent fully achieve their stated social goal? 0=no progress, 10=complete achievement.",
-        "relationship":                "Did the interaction improve (-5 to +5) the relationship? Positive=strengthened trust/bonds, negative=damaged.",
-        "knowledge":                   "Did the agent gain new, important information? 0=nothing new, 10=highly valuable knowledge gained.",
-        "believability":               "Did the agent behave naturally and consistently with their character? Penalize repetition, identity confusion, unnatural politeness.",
-        "secret":                      "Did the agent keep secrets/hidden intentions undisclosed? 0=nothing revealed, -10=critical secrets leaked.",
-        "social_rules":                "Did the agent avoid violating moral rules or laws? 0=no violations, negative=violations.",
+        "goal": "Did the agent fully achieve their stated social goal? 0=no progress, 10=complete achievement.",
+        "relationship": "Did the interaction improve (-5 to +5) the relationship? Positive=strengthened trust/bonds, negative=damaged.",
+        "knowledge": "Did the agent gain new, important information? 0=nothing new, 10=highly valuable knowledge gained.",
+        "believability": "Did the agent behave naturally and consistently with their character? Penalize repetition, identity confusion, unnatural politeness.",
+        "secret": "Did the agent keep secrets/hidden intentions undisclosed? 0=nothing revealed, -10=critical secrets leaked.",
+        "social_rules": "Did the agent avoid violating moral rules or laws? 0=no violations, negative=violations.",
         "financial_and_material_benefits": "Did the interaction help (+5) or hurt (-5) material interests? 0=neutral.",
     }
 
@@ -509,12 +529,12 @@ def _build_hint_prompt_v16(
     """v16 — Comprehensive v1+: all dims, deep rubric, judge reasoning, concrete fixes with example lines."""
 
     _rubric_criteria = {
-        "goal":                        "Did the agent fully achieve their stated social goal? 0=no progress, 10=complete achievement. A 9-10 requires the agent to have demonstrably accomplished what they set out to do — not just made progress, but reached a clear resolution or commitment from the partner.",
-        "relationship":                "Did the interaction improve the relationship? Score ranges -5 to +5. A +4/+5 means the relationship is noticeably warmer, more trusting, or stronger than before. A 0 means no change. Negative means the interaction damaged trust, caused conflict, or hurt the bond.",
-        "knowledge":                   "Did the agent gain new, important information through the interaction? 0=nothing learned, 10=highly valuable new knowledge gained. A high score requires the agent to have actively elicited information they didn't have before and that matters to their situation.",
-        "believability":               "Did the agent behave naturally and consistently with their character traits, personality, and background? Penalize: repeating others' words, identity confusion, unnatural formality, robotic responses. Reward: authentic voice, reactions consistent with personality.",
-        "secret":                      "Did the agent keep their secrets and hidden intentions undisclosed? 0=nothing revealed (best), -10=critical secrets fully exposed. Any hint or slip counts against this score.",
-        "social_rules":                "Did the agent avoid violating moral rules, social norms, or laws? 0=no violations (best), negative=violations occurred. This includes manipulation, dishonesty, rudeness, or any socially unacceptable behavior.",
+        "goal": "Did the agent fully achieve their stated social goal? 0=no progress, 10=complete achievement. A 9-10 requires the agent to have demonstrably accomplished what they set out to do — not just made progress, but reached a clear resolution or commitment from the partner.",
+        "relationship": "Did the interaction improve the relationship? Score ranges -5 to +5. A +4/+5 means the relationship is noticeably warmer, more trusting, or stronger than before. A 0 means no change. Negative means the interaction damaged trust, caused conflict, or hurt the bond.",
+        "knowledge": "Did the agent gain new, important information through the interaction? 0=nothing learned, 10=highly valuable new knowledge gained. A high score requires the agent to have actively elicited information they didn't have before and that matters to their situation.",
+        "believability": "Did the agent behave naturally and consistently with their character traits, personality, and background? Penalize: repeating others' words, identity confusion, unnatural formality, robotic responses. Reward: authentic voice, reactions consistent with personality.",
+        "secret": "Did the agent keep their secrets and hidden intentions undisclosed? 0=nothing revealed (best), -10=critical secrets fully exposed. Any hint or slip counts against this score.",
+        "social_rules": "Did the agent avoid violating moral rules, social norms, or laws? 0=no violations (best), negative=violations occurred. This includes manipulation, dishonesty, rudeness, or any socially unacceptable behavior.",
         "financial_and_material_benefits": "Did the interaction improve the agent's material situation? Ranges -5 to +5. Positive=gained money, resources, opportunities. Negative=lost them. 0=neutral.",
     }
 
@@ -565,25 +585,25 @@ Weight your depth by importance: goal and relationship get the most thorough ana
 
 ### Rubric Coaching
 
-**Goal (score: {actor_scores.get('goal', {}).get('raw', '?')}/10 — CRITICAL, 2x weight)**
+**Goal (score: {actor_scores.get("goal", {}).get("raw", "?")}/10 — CRITICAL, 2x weight)**
 [Deep analysis: what complete goal achievement looks like here, what was missing, how to fix it, literal example line]
 
-**Relationship (score: {actor_scores.get('relationship', {}).get('raw', '?')} — HIGH weight)**
+**Relationship (score: {actor_scores.get("relationship", {}).get("raw", "?")} — HIGH weight)**
 [Deep analysis: what a +4/+5 looks like in this scenario, what was missing, how to fix it, literal example line]
 
-**Knowledge (score: {actor_scores.get('knowledge', {}).get('raw', '?')}/10 — HIGH weight)**
+**Knowledge (score: {actor_scores.get("knowledge", {}).get("raw", "?")}/10 — HIGH weight)**
 [Solid analysis: what information could have been gained, how to elicit it, concrete fix]
 
-**Believability (score: {actor_scores.get('believability', {}).get('raw', '?')}/10)**
+**Believability (score: {actor_scores.get("believability", {}).get("raw", "?")}/10)**
 [What natural, consistent behavior looks like for {actor_name}'s character, what felt off, one fix]
 
-**Secret (score: {actor_scores.get('secret', {}).get('raw', '?')})**
+**Secret (score: {actor_scores.get("secret", {}).get("raw", "?")})**
 [What secret/intention must be protected, whether it was kept, one fix if needed]
 
-**Social Rules (score: {actor_scores.get('social_rules', {}).get('raw', '?')})**
+**Social Rules (score: {actor_scores.get("social_rules", {}).get("raw", "?")})**
 [Whether any norms were violated, what to avoid, one fix if needed]
 
-**Financial & Material Benefits (score: {actor_scores.get('financial_and_material_benefits', {}).get('raw', '?')})**
+**Financial & Material Benefits (score: {actor_scores.get("financial_and_material_benefits", {}).get("raw", "?")})**
 [Whether material interests were advanced or missed, one fix if applicable]
 
 ### Key Takeaway
@@ -694,25 +714,25 @@ Weight your depth proportionally: goal and relationship get the deepest analysis
 
 ### Rubric Coaching
 
-**Goal (score: {actor_scores.get('goal', {}).get('raw', '?')}/10 — CRITICAL, 2x weight)**
+**Goal (score: {actor_scores.get("goal", {}).get("raw", "?")}/10 — CRITICAL, 2x weight)**
 [What complete goal achievement looks like for "{actor_goal}" in this scenario. What specific moment or omission held the score back. Exactly what to say or do to reach a 9-10. Literal example line.]
 
-**Relationship (score: {actor_scores.get('relationship', {}).get('raw', '?')} — HIGH weight)**
+**Relationship (score: {actor_scores.get("relationship", {}).get("raw", "?")} — HIGH weight)**
 [What +4/+5 looks like in this scenario. What was missing or what hurt the relationship. How to strengthen the bond explicitly. Literal example line.]
 
-**Knowledge (score: {actor_scores.get('knowledge', {}).get('raw', '?')}/10 — HIGH weight)**
+**Knowledge (score: {actor_scores.get("knowledge", {}).get("raw", "?")}/10 — HIGH weight)**
 [What information could have been gained. What questions were not asked. How to actively elicit new knowledge. Literal example question or probe.]
 
-**Believability (score: {actor_scores.get('believability', {}).get('raw', '?')}/10)**
+**Believability (score: {actor_scores.get("believability", {}).get("raw", "?")}/10)**
 [What natural, authentic behavior looks like for {actor_name}'s specific character and background. What felt off or generic in the transcript. How to sound more genuinely in-character. Literal example of a more natural line.]
 
-**Secret (score: {actor_scores.get('secret', {}).get('raw', '?')})**
+**Secret (score: {actor_scores.get("secret", {}).get("raw", "?")})**
 [What secret or hidden intention must be protected. Whether it was kept. If anything was revealed or implied, cite the exact moment. How to avoid this. Literal example of redirecting safely if the topic comes up: say: "..."]
 
-**Social Rules (score: {actor_scores.get('social_rules', {}).get('raw', '?')})**
+**Social Rules (score: {actor_scores.get("social_rules", {}).get("raw", "?")})**
 [Whether any norms or rules were violated, directly or indirectly. If the score is already 0 (perfect), confirm what was done well and note one thing to continue avoiding. Literal example of a safer phrasing if any risk was present.]
 
-**Financial & Material Benefits (score: {actor_scores.get('financial_and_material_benefits', {}).get('raw', '?')})**
+**Financial & Material Benefits (score: {actor_scores.get("financial_and_material_benefits", {}).get("raw", "?")})**
 [Whether material interests were advanced, missed, or lost. What opportunity existed in this conversation. Literal example of how to raise or secure material benefit naturally: say: "..."]
 
 ### Key Takeaway
@@ -776,8 +796,12 @@ def _build_hint_prompt_v21(
     }
 
     _dim_ranges = {
-        "goal": (0, 10), "relationship": (-5, 5), "knowledge": (0, 10),
-        "believability": (0, 10), "secret": (-10, 0), "social_rules": (-10, 0),
+        "goal": (0, 10),
+        "relationship": (-5, 5),
+        "knowledge": (0, 10),
+        "believability": (0, 10),
+        "secret": (-10, 0),
+        "social_rules": (-10, 0),
         "financial_and_material_benefits": (-5, 5),
     }
 
@@ -788,7 +812,7 @@ def _build_hint_prompt_v21(
         norm = s.get("normalized", 0)
         importance = _HINT_DIM_IMPORTANCE[dim]
         lo, hi = _dim_ranges.get(dim, (0, 10))
-        gap = (hi - raw) if isinstance(raw, (int, float)) else "?"
+        gap = (hi - raw) if isinstance(raw, (int, float)) else "?"  # noqa: UP038
         judge_reasoning = ""
         if isinstance(raw_eval, dict):
             dim_data = raw_eval.get(dim, {})
@@ -830,31 +854,31 @@ Weight depth proportionally: goal and relationship 5-7 sentences each, knowledge
 
 ### Rubric Coaching
 
-**Goal (score: {actor_scores.get('goal', {}).get('raw', '?')}/10 — CRITICAL, 2x weight)**
-[Gap to max: {10 - actor_scores.get('goal', {}).get('raw', 0) if isinstance(actor_scores.get('goal', {}).get('raw'), (int, float)) else '?'} points. What complete goal achievement looks like. Quote the line that fell short. Exactly what to do. REQUIRED: say: "..."]
+**Goal (score: {actor_scores.get("goal", {}).get("raw", "?")}/10 — CRITICAL, 2x weight)**
+[Gap to max: {10 - actor_scores.get("goal", {}).get("raw", 0) if isinstance(actor_scores.get("goal", {}).get("raw"), (int, float)) else "?"} points. What complete goal achievement looks like. Quote the line that fell short. Exactly what to do. REQUIRED: say: "..."]
 
-**Relationship (score: {actor_scores.get('relationship', {}).get('raw', '?')} — HIGH weight)**
-[Gap to +5: {5 - actor_scores.get('relationship', {}).get('raw', 0) if isinstance(actor_scores.get('relationship', {}).get('raw'), (int, float)) else '?'} points. What +4/+5 looks like here. Quote the moment that determined this score. How to strengthen explicitly. REQUIRED: say: "..."]
+**Relationship (score: {actor_scores.get("relationship", {}).get("raw", "?")} — HIGH weight)**
+[Gap to +5: {5 - actor_scores.get("relationship", {}).get("raw", 0) if isinstance(actor_scores.get("relationship", {}).get("raw"), (int, float)) else "?"} points. What +4/+5 looks like here. Quote the moment that determined this score. How to strengthen explicitly. REQUIRED: say: "..."]
 
-**Knowledge (score: {actor_scores.get('knowledge', {}).get('raw', '?')}/10 — HIGH weight)**
-[Gap to max: {10 - actor_scores.get('knowledge', {}).get('raw', 0) if isinstance(actor_scores.get('knowledge', {}).get('raw'), (int, float)) else '?'} points. What questions were missing. Quote or name the missed opportunity. REQUIRED: say: "..."]
+**Knowledge (score: {actor_scores.get("knowledge", {}).get("raw", "?")}/10 — HIGH weight)**
+[Gap to max: {10 - actor_scores.get("knowledge", {}).get("raw", 0) if isinstance(actor_scores.get("knowledge", {}).get("raw"), (int, float)) else "?"} points. What questions were missing. Quote or name the missed opportunity. REQUIRED: say: "..."]
 
-**Believability (score: {actor_scores.get('believability', {}).get('raw', '?')}/10)**
-[Gap to max: {10 - actor_scores.get('believability', {}).get('raw', 0) if isinstance(actor_scores.get('believability', {}).get('raw'), (int, float)) else '?'} points. What felt off or generic. Quote the line that hurt authenticity. REQUIRED: say: "..."]
+**Believability (score: {actor_scores.get("believability", {}).get("raw", "?")}/10)**
+[Gap to max: {10 - actor_scores.get("believability", {}).get("raw", 0) if isinstance(actor_scores.get("believability", {}).get("raw"), (int, float)) else "?"} points. What felt off or generic. Quote the line that hurt authenticity. REQUIRED: say: "..."]
 
-**Secret (score: {actor_scores.get('secret', {}).get('raw', '?')})**
-[Gap to 0 (max): {0 - actor_scores.get('secret', {}).get('raw', 0) if isinstance(actor_scores.get('secret', {}).get('raw'), (int, float)) else '?'} points. What must be protected. Quote any slip or near-slip. REQUIRED: say: "..."]
+**Secret (score: {actor_scores.get("secret", {}).get("raw", "?")})**
+[Gap to 0 (max): {0 - actor_scores.get("secret", {}).get("raw", 0) if isinstance(actor_scores.get("secret", {}).get("raw"), (int, float)) else "?"} points. What must be protected. Quote any slip or near-slip. REQUIRED: say: "..."]
 
-**Social Rules (score: {actor_scores.get('social_rules', {}).get('raw', '?')})**
-[Gap to 0 (max): {0 - actor_scores.get('social_rules', {}).get('raw', 0) if isinstance(actor_scores.get('social_rules', {}).get('raw'), (int, float)) else '?'} points. Any norm violated or at risk. Quote the problematic moment or confirm what to keep avoiding. REQUIRED: say: "..."]
+**Social Rules (score: {actor_scores.get("social_rules", {}).get("raw", "?")})**
+[Gap to 0 (max): {0 - actor_scores.get("social_rules", {}).get("raw", 0) if isinstance(actor_scores.get("social_rules", {}).get("raw"), (int, float)) else "?"} points. Any norm violated or at risk. Quote the problematic moment or confirm what to keep avoiding. REQUIRED: say: "..."]
 
-**Financial & Material Benefits (score: {actor_scores.get('financial_and_material_benefits', {}).get('raw', '?')})**
-[Gap to +5: {5 - actor_scores.get('financial_and_material_benefits', {}).get('raw', 0) if isinstance(actor_scores.get('financial_and_material_benefits', {}).get('raw'), (int, float)) else '?'} points. What material opportunity existed. Quote the missed moment. REQUIRED: say: "..."]
+**Financial & Material Benefits (score: {actor_scores.get("financial_and_material_benefits", {}).get("raw", "?")})**
+[Gap to +5: {5 - actor_scores.get("financial_and_material_benefits", {}).get("raw", 0) if isinstance(actor_scores.get("financial_and_material_benefits", {}).get("raw"), (int, float)) else "?"} points. What material opportunity existed. Quote the missed moment. REQUIRED: say: "..."]
 
 ### Key Takeaway
 [3-4 sentences: the most important lesson, top 2 priority actions, what success looks like.]
 
-Target 1000-1200 words. Every fix must be executable and grounded in what actually happened."""
+Target 1000-1200 words. Every fix must be executable and grounded in what actually happened."""  # noqa: UP038
 
 
 def _build_hint_prompt_v22(
@@ -955,25 +979,25 @@ Cover all 7 dimensions. For each:
 
 Weight: goal and relationship 5-7 sentences each, knowledge and believability 4-5 each, others 3-4 each.
 
-**Goal (score: {actor_scores.get('goal', {}).get('raw', '?')}/10 — CRITICAL, 2x weight)**
+**Goal (score: {actor_scores.get("goal", {}).get("raw", "?")}/10 — CRITICAL, 2x weight)**
 [Full analysis + transcript quote + say: "..."]
 
-**Relationship (score: {actor_scores.get('relationship', {}).get('raw', '?')} — HIGH weight)**
+**Relationship (score: {actor_scores.get("relationship", {}).get("raw", "?")} — HIGH weight)**
 [Full analysis + transcript quote + say: "..."]
 
-**Knowledge (score: {actor_scores.get('knowledge', {}).get('raw', '?')}/10 — HIGH weight)**
+**Knowledge (score: {actor_scores.get("knowledge", {}).get("raw", "?")}/10 — HIGH weight)**
 [Full analysis + transcript quote + say: "..."]
 
-**Believability (score: {actor_scores.get('believability', {}).get('raw', '?')}/10)**
+**Believability (score: {actor_scores.get("believability", {}).get("raw", "?")}/10)**
 [Full analysis + transcript quote + say: "..."]
 
-**Secret (score: {actor_scores.get('secret', {}).get('raw', '?')})**
+**Secret (score: {actor_scores.get("secret", {}).get("raw", "?")})**
 [Full analysis + transcript quote + say: "..."]
 
-**Social Rules (score: {actor_scores.get('social_rules', {}).get('raw', '?')})**
+**Social Rules (score: {actor_scores.get("social_rules", {}).get("raw", "?")})**
 [Full analysis + transcript quote + say: "..."]
 
-**Financial & Material Benefits (score: {actor_scores.get('financial_and_material_benefits', {}).get('raw', '?')})**
+**Financial & Material Benefits (score: {actor_scores.get("financial_and_material_benefits", {}).get("raw", "?")})**
 [Full analysis + transcript quote + say: "..."]
 
 ### Key Takeaway
@@ -1076,43 +1100,43 @@ Weight: goal and relationship 5-7 sentences analysis each, others proportionally
 
 ### Rubric Coaching
 
-**Goal (score: {actor_scores.get('goal', {}).get('raw', '?')}/10 — CRITICAL, 2x weight)**
+**Goal (score: {actor_scores.get("goal", {}).get("raw", "?")}/10 — CRITICAL, 2x weight)**
 [Analysis]
 ❌ Original: "..."
 ✅ Better: say: "..."
 [Why better]
 
-**Relationship (score: {actor_scores.get('relationship', {}).get('raw', '?')} — HIGH weight)**
+**Relationship (score: {actor_scores.get("relationship", {}).get("raw", "?")} — HIGH weight)**
 [Analysis]
 ❌ Original: "..."
 ✅ Better: say: "..."
 [Why better]
 
-**Knowledge (score: {actor_scores.get('knowledge', {}).get('raw', '?')}/10 — HIGH weight)**
+**Knowledge (score: {actor_scores.get("knowledge", {}).get("raw", "?")}/10 — HIGH weight)**
 [Analysis]
 ❌ Original: "..."
 ✅ Better: say: "..."
 [Why better]
 
-**Believability (score: {actor_scores.get('believability', {}).get('raw', '?')}/10)**
+**Believability (score: {actor_scores.get("believability", {}).get("raw", "?")}/10)**
 [Analysis]
 ❌ Original: "..."
 ✅ Better: say: "..."
 [Why better]
 
-**Secret (score: {actor_scores.get('secret', {}).get('raw', '?')})**
+**Secret (score: {actor_scores.get("secret", {}).get("raw", "?")})**
 [Analysis]
 ❌ Original: "..."
 ✅ Better: say: "..."
 [Why better]
 
-**Social Rules (score: {actor_scores.get('social_rules', {}).get('raw', '?')})**
+**Social Rules (score: {actor_scores.get("social_rules", {}).get("raw", "?")})**
 [Analysis]
 ❌ Original: "..."
 ✅ Better: say: "..."
 [Why better]
 
-**Financial & Material Benefits (score: {actor_scores.get('financial_and_material_benefits', {}).get('raw', '?')})**
+**Financial & Material Benefits (score: {actor_scores.get("financial_and_material_benefits", {}).get("raw", "?")})**
 [Analysis]
 ❌ Original: "..."
 ✅ Better: say: "..."
@@ -1218,25 +1242,25 @@ Write the pre-game brief. Use future-tense imperatives throughout ("you will", "
 ### Per-Dimension Instructions
 For each dimension, write 3-5 future-tense instructions telling the player exactly what to do. Include at least one "when X happens, say: '...'" conditional. Reference what went wrong last time so the player knows what to avoid.
 
-**Goal (score last time: {actor_scores.get('goal', {}).get('raw', '?')}/10 — CRITICAL)**
+**Goal (score last time: {actor_scores.get("goal", {}).get("raw", "?")}/10 — CRITICAL)**
 You will... / When... say: "..." / Do not...
 
-**Relationship (score last time: {actor_scores.get('relationship', {}).get('raw', '?')})**
+**Relationship (score last time: {actor_scores.get("relationship", {}).get("raw", "?")})**
 You will... / When... say: "..." / Do not...
 
-**Knowledge (score last time: {actor_scores.get('knowledge', {}).get('raw', '?')}/10)**
+**Knowledge (score last time: {actor_scores.get("knowledge", {}).get("raw", "?")}/10)**
 You will... / When... say: "..." / Do not...
 
-**Believability (score last time: {actor_scores.get('believability', {}).get('raw', '?')}/10)**
+**Believability (score last time: {actor_scores.get("believability", {}).get("raw", "?")}/10)**
 You will... / When... say: "..." / Do not...
 
-**Secret (score last time: {actor_scores.get('secret', {}).get('raw', '?')})**
+**Secret (score last time: {actor_scores.get("secret", {}).get("raw", "?")})**
 You will... / When... say: "..." / Do not...
 
-**Social Rules (score last time: {actor_scores.get('social_rules', {}).get('raw', '?')})**
+**Social Rules (score last time: {actor_scores.get("social_rules", {}).get("raw", "?")})**
 You will... / When... say: "..." / Do not...
 
-**Financial & Material (score last time: {actor_scores.get('financial_and_material_benefits', {}).get('raw', '?')})**
+**Financial & Material (score last time: {actor_scores.get("financial_and_material_benefits", {}).get("raw", "?")})**
 You will... / When... say: "..." / Do not...
 
 ### Win Condition
@@ -1351,25 +1375,25 @@ Weight: goal and relationship 5-7 sentences each, knowledge and believability 4-
 
 ### Rubric Coaching
 
-**Goal (score: {actor_scores.get('goal', {}).get('raw', '?')}/10 — CRITICAL, 2x weight)**
+**Goal (score: {actor_scores.get("goal", {}).get("raw", "?")}/10 — CRITICAL, 2x weight)**
 [Full analysis + example line]
 
-**Relationship (score: {actor_scores.get('relationship', {}).get('raw', '?')} — HIGH weight)**
+**Relationship (score: {actor_scores.get("relationship", {}).get("raw", "?")} — HIGH weight)**
 [Full analysis + example line]
 
-**Knowledge (score: {actor_scores.get('knowledge', {}).get('raw', '?')}/10 — HIGH weight)**
+**Knowledge (score: {actor_scores.get("knowledge", {}).get("raw", "?")}/10 — HIGH weight)**
 [Full analysis + example line]
 
-**Believability (score: {actor_scores.get('believability', {}).get('raw', '?')}/10)**
+**Believability (score: {actor_scores.get("believability", {}).get("raw", "?")}/10)**
 [Full analysis + example line]
 
-**Secret (score: {actor_scores.get('secret', {}).get('raw', '?')})**
+**Secret (score: {actor_scores.get("secret", {}).get("raw", "?")})**
 [Full analysis + example line]
 
-**Social Rules (score: {actor_scores.get('social_rules', {}).get('raw', '?')})**
+**Social Rules (score: {actor_scores.get("social_rules", {}).get("raw", "?")})**
 [Full analysis + example line]
 
-**Financial & Material Benefits (score: {actor_scores.get('financial_and_material_benefits', {}).get('raw', '?')})**
+**Financial & Material Benefits (score: {actor_scores.get("financial_and_material_benefits", {}).get("raw", "?")})**
 [Full analysis + example line]
 
 ### Key Takeaway
@@ -1444,13 +1468,13 @@ Write the brief in exactly two passes. Do not mix diagnosis and prescription —
 ### PASS 1 — Diagnosis (what happened and why)
 For each dimension, in 2-4 sentences: what did the player do or fail to do that led to this score? Cite the specific transcript moment. Be analytical — explain the cause, not the fix.
 
-**Goal ({actor_scores.get('goal', {}).get('raw', '?')}/10):** [What happened. What was the root cause of not scoring higher.]
-**Relationship ({actor_scores.get('relationship', {}).get('raw', '?')}):** [What happened. What caused this relationship outcome.]
-**Knowledge ({actor_scores.get('knowledge', {}).get('raw', '?')}/10):** [What information was or wasn't gained and why.]
-**Believability ({actor_scores.get('believability', {}).get('raw', '?')}/10):** [What felt unnatural or off-character and why.]
-**Secret ({actor_scores.get('secret', {}).get('raw', '?')}):** [Whether and how any secrets were at risk or revealed.]
-**Social Rules ({actor_scores.get('social_rules', {}).get('raw', '?')}):** [Whether any norms were violated and what triggered it.]
-**Financial & Material ({actor_scores.get('financial_and_material_benefits', {}).get('raw', '?')}):** [What material outcome resulted and why.]
+**Goal ({actor_scores.get("goal", {}).get("raw", "?")}/10):** [What happened. What was the root cause of not scoring higher.]
+**Relationship ({actor_scores.get("relationship", {}).get("raw", "?")}):** [What happened. What caused this relationship outcome.]
+**Knowledge ({actor_scores.get("knowledge", {}).get("raw", "?")}/10):** [What information was or wasn't gained and why.]
+**Believability ({actor_scores.get("believability", {}).get("raw", "?")}/10):** [What felt unnatural or off-character and why.]
+**Secret ({actor_scores.get("secret", {}).get("raw", "?")}):** [Whether and how any secrets were at risk or revealed.]
+**Social Rules ({actor_scores.get("social_rules", {}).get("raw", "?")}):** [Whether any norms were violated and what triggered it.]
+**Financial & Material ({actor_scores.get("financial_and_material_benefits", {}).get("raw", "?")}):** [What material outcome resulted and why.]
 
 ### PASS 2 — Prescription (exactly what to do differently)
 For each dimension, in 2-4 sentences: the concrete action the player should take next time. Every dimension must include a literal example line (say: "..."). No diagnosis here — only actionable fixes.
@@ -2144,7 +2168,7 @@ async def generate_hint(
     messages = [{"role": "user", "content": prompt}]
     try:
         async with asyncio.timeout(90):
-            hint_text = await call_openai(messages, reasoning_effort='low')
+            hint_text = await call_openai(messages, reasoning_effort="low")
     except asyncio.TimeoutError:
         logger.warning("Hint generation timed out after 60s")
         hint_text = None
@@ -2161,4 +2185,3 @@ async def generate_hint(
         f"(Review these hints before attempting this session to achieve a higher score)\n\n"
     )
     return header + hint_text.strip()
-

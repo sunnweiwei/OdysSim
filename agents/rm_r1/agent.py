@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Harmony agent loop for RM-R1 pairwise reward-model training and eval.
 
 Prompts and reward semantics mirror https://github.com/RM-R1-UIUC/RM-R1.
@@ -7,7 +21,6 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from agents.utils import Agent, process_post_chat
 from agents.rm_r1.prompts import (
     RM_R1_INSTRUCT_SYSTEM_PROMPT,
     RM_R1_MULTI_TURN_INSTRUCT_USER_PROMPT,
@@ -15,6 +28,7 @@ from agents.rm_r1.prompts import (
     RM_R1_SINGLE_TURN_INSTRUCT_USER_PROMPT,
     RM_R1_SINGLE_TURN_REASONING_USER_PROMPT,
 )
+from agents.utils import Agent, process_post_chat
 
 MODE_INSTRUCT = "instruct"
 MODE_REASONING = "reasoning"
@@ -99,11 +113,15 @@ def build_pairwise_messages(row: dict, mode: str) -> list[dict[str, str]]:
         raise ValueError("RM-R1 row missing question/answer_a/answer_b.")
     if mode == MODE_REASONING:
         user = RM_R1_SINGLE_TURN_REASONING_USER_PROMPT.format(
-            question=question, answer_a=answer_a, answer_b=answer_b,
+            question=question,
+            answer_a=answer_a,
+            answer_b=answer_b,
         )
         return [{"role": "user", "content": user}]
     user = RM_R1_SINGLE_TURN_INSTRUCT_USER_PROMPT.format(
-        question=question, answer_a=answer_a, answer_b=answer_b,
+        question=question,
+        answer_a=answer_a,
+        answer_b=answer_b,
     )
     return [
         {"role": "system", "content": RM_R1_INSTRUCT_SYSTEM_PROMPT},
@@ -154,8 +172,12 @@ async def agent_loop(data: dict, context):
     if enable_think is None:
         enable_think = mode == MODE_REASONING
     agent = Agent(
-        context.llm_client, chat, context.tokenizer, context.config,
-        prompt_turn=len(chat), enable_think=bool(enable_think),
+        context.llm_client,
+        chat,
+        context.tokenizer,
+        context.config,
+        prompt_turn=len(chat),
+        enable_think=bool(enable_think),
     )
     response = await agent.step() or ""
 
@@ -175,9 +197,12 @@ async def agent_loop(data: dict, context):
     else:
         reward = evaluation_reward(response, expected_winner, strong_error=eval_suite.startswith("rmb"))
 
-    output = await agent.get_agent_output(reward, extra_info={
-        "rm_r1/reward": reward,
-        "rm_r1/response_length": len(response.split()),
-    })
+    output = await agent.get_agent_output(
+        reward,
+        extra_info={
+            "rm_r1/reward": reward,
+            "rm_r1/response_length": len(response.split()),
+        },
+    )
     await process_post_chat(data, context, agent.chat, output)
     return output

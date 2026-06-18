@@ -1,3 +1,17 @@
+# Copyright 2025 Individual Contributor: OdysSim Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Hint generation for the LifeChoices agent.
 
@@ -9,6 +23,7 @@ right reasoning approach.
 
 import asyncio
 import logging
+
 from agents.utils import call_openai, remove_think
 
 logger = logging.getLogger(__name__)
@@ -22,6 +37,7 @@ def get_teacher_prompt(character_data: dict, hint: str) -> str:
     """
     from agents.lifechoices.agent import create_prompt
     from agents.utils import truncate_text
+
     character_data = {
         **character_data,
         "input_text": truncate_text(str(character_data.get("input_text", "")), 2000),
@@ -40,8 +56,8 @@ def get_teacher_prompt(character_data: dict, hint: str) -> str:
 
 
 def _build_hint_prompt(
-        character_data: dict,
-        content: str | None,
+    character_data: dict,
+    content: str | None,
 ) -> str:
     """Build the prompt sent to the hint-generation LLM.
 
@@ -56,9 +72,7 @@ def _build_hint_prompt(
     description = character_data.get("character_name", "")
     memory = character_data.get("input_text", "")
 
-    options_text = "\n".join(
-        f"{chr(65 + i)}. {opt}" for i, opt in enumerate(options)
-    )
+    options_text = "\n".join(f"{chr(65 + i)}. {opt}" for i, opt in enumerate(options))
 
     correct_answer = mcq.get("Correct Answer", "")
     predicted_str = content if content else "(no response)"
@@ -100,8 +114,8 @@ Output only the hint text, no preamble."""
 
 
 async def generate_hint(
-        character_data: dict,
-        content: str | None,
+    character_data: dict,
+    content: str | None,
 ) -> str:
     """Generate a concise in-character reasoning hint.
 
@@ -115,7 +129,7 @@ async def generate_hint(
     hint_text = None
     try:
         async with asyncio.timeout(120):
-            hint_text = await call_openai(messages, model='gpt-5.4-nano', reasoning_effort='low')
+            hint_text = await call_openai(messages, model="gpt-5.4-nano", reasoning_effort="low")
             if hint_text:
                 hint_text = remove_think(hint_text).strip()
     except asyncio.TimeoutError:
