@@ -11,6 +11,10 @@ Usage:
 HF_TOKEN is optional for public data/model access. If set or found in the local
 Hugging Face CLI cache, it is passed to the AMLT job. Secrets are injected only
 into a temporary AMLT config and are not written into the repo.
+
+TRAPI_ACCESS_TOKEN is optional. If unset, this script obtains a short-lived
+token from the current local `az login` for scope api://trapi/.default and
+passes it as OPENAI_API_KEY to the AMLT job.
 EOF
 }
 
@@ -63,10 +67,40 @@ PY
   fi
 }
 
+load_trapi_token_from_az_login() {
+  if [ -n "${TRAPI_ACCESS_TOKEN:-}" ]; then
+    OPENAI_API_KEY="$TRAPI_ACCESS_TOKEN"
+    export OPENAI_API_KEY
+    return
+  fi
+  if [ -n "${OPENAI_API_KEY:-}" ]; then
+    TRAPI_ACCESS_TOKEN="$OPENAI_API_KEY"
+    export TRAPI_ACCESS_TOKEN
+    return
+  fi
+  local token
+  if command -v az >/dev/null 2>&1; then
+    token="$(az account get-access-token --scope api://trapi/.default --query accessToken -o tsv 2>/dev/null || true)"
+  elif command -v az.exe >/dev/null 2>&1; then
+    token="$(az.exe account get-access-token --scope api://trapi/.default --query accessToken -o tsv 2>/dev/null | tr -d '\r' || true)"
+  elif command -v cmd.exe >/dev/null 2>&1; then
+    token="$(cmd.exe /C "az account get-access-token --scope api://trapi/.default --query accessToken -o tsv" 2>/dev/null | tr -d '\r' || true)"
+  else
+    token=""
+  fi
+  if [ -z "$token" ]; then
+    echo "Could not obtain a TRAPI token from local az login. Run az login with the SLC account, then retry." >&2
+    exit 2
+  fi
+  TRAPI_ACCESS_TOKEN="$token"
+  OPENAI_API_KEY="$token"
+  export TRAPI_ACCESS_TOKEN OPENAI_API_KEY
+}
+
 redact() {
   python3 -c 'import os, sys
 text = sys.stdin.read()
-for name in ("HF_TOKEN", "WANDB_API_KEY"):
+for name in ("HF_TOKEN", "WANDB_API_KEY", "TRAPI_ACCESS_TOKEN", "OPENAI_API_KEY"):
     value = os.environ.get(name)
     if value:
         text = text.replace(value, f"<{name}_REDACTED>")
@@ -85,7 +119,9 @@ fi
 
 load_hf_token_from_login
 load_wandb_key_from_login
+load_trapi_token_from_az_login
 require_real_env WANDB_API_KEY
+require_real_env OPENAI_API_KEY
 
 export AMLT_PROJECT_DIR="${AMLT_PROJECT_DIR:-$(cd .. && pwd)/amlt-projects/odysim_tau}"
 if [ ! -d "$AMLT_PROJECT_DIR" ]; then
@@ -111,6 +147,10 @@ config = config.replace("local_dir: $CONFIG_DIR", f"local_dir: {repo_dir}")
 config = config.replace(
     'WANDB_API_KEY: "<wandb-api-key>"',
     f"WANDB_API_KEY: {json.dumps(os.environ['WANDB_API_KEY'])}",
+)
+config = config.replace(
+    'OPENAI_API_KEY: "<trapi-access-token>"',
+    f"OPENAI_API_KEY: {json.dumps(os.environ['OPENAI_API_KEY'])}",
 )
 hf_token = os.environ.get("HF_TOKEN", "")
 config = config.replace('HF_TOKEN: ""', f"HF_TOKEN: {json.dumps(hf_token)}")

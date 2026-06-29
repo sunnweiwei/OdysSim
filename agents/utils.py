@@ -130,9 +130,12 @@ def _get_trapi_token_provider():
 def _resolve_openai_api_key(api_key_env: str, base_url: str | None):
     api_key = os.getenv(api_key_env)
     provider = os.getenv("OPENAI_PROVIDER", "").lower()
+    is_trapi = provider == "trapi" or bool(base_url and "trapi.research.microsoft.com" in base_url)
     if api_key:
         return api_key
-    if provider == "trapi" or (base_url and "trapi.research.microsoft.com" in base_url):
+    if is_trapi and os.getenv("OPENAI_TRAPI_AUTH", "").strip().lower() in {"local_token", "api_key", "bearer_token"}:
+        raise RuntimeError(f"{api_key_env} is required when OPENAI_TRAPI_AUTH={os.getenv('OPENAI_TRAPI_AUTH')!r}")
+    if is_trapi:
         return _get_trapi_token_provider()
     return api_key
 

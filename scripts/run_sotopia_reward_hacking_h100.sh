@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 
 : "${OPENAI_BASE_URL:=https://trapi.research.microsoft.com/redmond/interactive/openai/v1}"
 export OPENAI_PROVIDER="${OPENAI_PROVIDER:-trapi}"
+export OPENAI_TRAPI_AUTH="${OPENAI_TRAPI_AUTH:-azure_credential}"
 export OPENAI_BASE_URL
 export JUDGE_MODEL_NAME="${JUDGE_MODEL_NAME:-gpt-5.4-mini_2026-03-17}"
 export WANDB_ENTITY="${WANDB_ENTITY:-fireballoon}"
@@ -65,18 +66,25 @@ python3 - <<'PY'
 import asyncio
 import os
 
-from azure.identity import AzureCliCredential, ChainedTokenCredential, ManagedIdentityCredential, get_bearer_token_provider
 from openai import AsyncOpenAI
 
 
 async def main():
     base_url = os.environ["OPENAI_BASE_URL"]
-    token_provider = get_bearer_token_provider(
-        ChainedTokenCredential(AzureCliCredential(), ManagedIdentityCredential()),
-        "api://trapi/.default",
-    )
+    auth_mode = os.getenv("OPENAI_TRAPI_AUTH", "azure_credential").strip().lower()
+    api_key = os.getenv("OPENAI_API_KEY")
+    if auth_mode in {"local_token", "api_key", "bearer_token"}:
+        if not api_key:
+            raise SystemExit("OPENAI_TRAPI_AUTH=local_token requires OPENAI_API_KEY from the submit host.")
+    else:
+        from azure.identity import AzureCliCredential, ChainedTokenCredential, ManagedIdentityCredential, get_bearer_token_provider
+
+        api_key = api_key or get_bearer_token_provider(
+            ChainedTokenCredential(AzureCliCredential(), ManagedIdentityCredential()),
+            "api://trapi/.default",
+        )
     client = AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY") or token_provider,
+        api_key=api_key,
         base_url=base_url,
         timeout=45,
     )
