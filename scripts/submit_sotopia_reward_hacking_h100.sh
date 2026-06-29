@@ -67,13 +67,33 @@ PY
   fi
 }
 
+is_probable_jwt() {
+  [[ "$1" == eyJ*.*.* ]]
+}
+
+first_jwt_from_text() {
+  python3 -c 'import re, sys
+text = sys.stdin.read()
+match = re.search(r"\beyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){2}\b", text)
+if match:
+    print(match.group(0))'
+}
+
 load_trapi_token_from_az_login() {
   if [ -n "${TRAPI_ACCESS_TOKEN:-}" ]; then
+    if ! is_probable_jwt "$TRAPI_ACCESS_TOKEN"; then
+      echo "TRAPI_ACCESS_TOKEN is set but does not look like an AAD bearer JWT." >&2
+      exit 2
+    fi
     OPENAI_API_KEY="$TRAPI_ACCESS_TOKEN"
     export OPENAI_API_KEY
     return
   fi
   if [ -n "${OPENAI_API_KEY:-}" ]; then
+    if ! is_probable_jwt "$OPENAI_API_KEY"; then
+      echo "OPENAI_API_KEY is set but does not look like an AAD bearer JWT for TRAPI local-token mode." >&2
+      exit 2
+    fi
     TRAPI_ACCESS_TOKEN="$OPENAI_API_KEY"
     export TRAPI_ACCESS_TOKEN
     return
@@ -88,8 +108,10 @@ load_trapi_token_from_az_login() {
   else
     token=""
   fi
-  if [ -z "$token" ]; then
-    echo "Could not obtain a TRAPI token from local az login. Run az login with the SLC account, then retry." >&2
+  token="$(printf "%s" "$token" | tr -d '\r' | first_jwt_from_text)"
+  if [ -z "$token" ] || ! is_probable_jwt "$token"; then
+    echo "Could not obtain a valid TRAPI JWT from local az login." >&2
+    echo "Run az login with the SLC account in the same WSL environment, or set TRAPI_ACCESS_TOKEN to a fresh token for scope api://trapi/.default." >&2
     exit 2
   fi
   TRAPI_ACCESS_TOKEN="$token"
