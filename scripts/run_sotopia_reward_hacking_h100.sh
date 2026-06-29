@@ -39,7 +39,7 @@ export SOTOPIA_ROLLOUT_LOG_PATH="${SOTOPIA_ROLLOUT_LOG_PATH:-$OUTPUT_DIR/openai_
 export SOTOPIA_ROLLOUT_LOG_EVERY="${SOTOPIA_ROLLOUT_LOG_EVERY:-8}"
 
 python3 -m pip install --user -U pip
-python3 -m pip install --user -v -e ".[vllm]"
+python3 -m pip install --user -v -e . --no-deps
 python3 -m pip install --user azure-identity huggingface_hub openai pandas pyarrow wandb
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -65,14 +65,18 @@ python3 - <<'PY'
 import asyncio
 import os
 
+from azure.identity import AzureCliCredential, ChainedTokenCredential, ManagedIdentityCredential, get_bearer_token_provider
 from openai import AsyncOpenAI
-from agents.utils import _resolve_openai_api_key
 
 
 async def main():
     base_url = os.environ["OPENAI_BASE_URL"]
+    token_provider = get_bearer_token_provider(
+        ChainedTokenCredential(AzureCliCredential(), ManagedIdentityCredential()),
+        "api://trapi/.default",
+    )
     client = AsyncOpenAI(
-        api_key=_resolve_openai_api_key("OPENAI_API_KEY", base_url),
+        api_key=os.getenv("OPENAI_API_KEY") or token_provider,
         base_url=base_url,
         timeout=45,
     )
