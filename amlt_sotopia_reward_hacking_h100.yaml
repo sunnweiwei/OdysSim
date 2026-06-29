@@ -5,7 +5,7 @@ target:
   name: msrresrchbasicvc
 
 environment:
-  image: amlt-sing/acpt-torch2.8.x-py3.10-cuda12.6-ubuntu22.04
+  image: verlai/verl:vllm012.latest
 
 code:
   local_dir: $CONFIG_DIR

@@ -40,7 +40,7 @@ export SOTOPIA_ROLLOUT_LOG_EVERY="${SOTOPIA_ROLLOUT_LOG_EVERY:-8}"
 
 python3 -m pip install --user -U pip
 python3 -m pip install --user -v -e . --no-deps
-python3 -m pip install --user azure-identity huggingface_hub openai pandas pyarrow wandb
+python3 -m pip install --user "azure-identity>=1.16.0" "huggingface_hub>=0.23,<1.0" "openai>=1.0"
 export PATH="$HOME/.local/bin:$PATH"
 
 python3 - <<'PY'
