@@ -5,6 +5,7 @@ target:
   name: msrresrchbasicvc
 
 environment:
+  registry: docker.io
   image: verlai/verl:vllm012.latest
 
 code:
