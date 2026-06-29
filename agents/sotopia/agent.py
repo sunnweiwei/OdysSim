@@ -25,6 +25,7 @@ import asyncio
 import copy
 import json
 import logging
+import os
 import re
 import uuid
 
@@ -44,6 +45,33 @@ from agents.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _append_rollout_log(path: str, payload: dict) -> None:
+    if not path:
+        return
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=True, default=str) + "\n")
+    except Exception as e:
+        logger.warning(f"[sotopia_rollout_log] failed to write {path}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -753,13 +781,21 @@ async def agent_loop(data, context):
             ),
         )
 
-    reward = eval_result["reward"]
-    if hack_result.risk_level == "high" and context.is_train:
+    weighted_reward = eval_result["reward"]
+    eval_avg = eval_result["actor_avg"]
+    base_training_reward = 0.1 * eval_avg
+    hack_penalty_mode = os.getenv("SOTOPIA_HACK_PENALTY_MODE", "audit").strip().lower()
+    hack_penalty_enabled = context.is_train and hack_penalty_mode in {"on", "true", "1", "penalize", "train"}
+    hack_penalty_multiplier = 1.0
+    reward = base_training_reward
+    if hack_penalty_enabled and hack_result.risk_level == "high":
+        hack_penalty_multiplier = 0.25
         reward = reward / 4
-        logger.warning(f"[hack_judge] HIGH risk detected — reward zeroed. Reason: {hack_result.reason}")
-    if hack_result.risk_level == "medium" and context.is_train:
+        logger.warning(f"[hack_judge] HIGH risk detected, reward x0.25. Reason: {hack_result.reason}")
+    if hack_penalty_enabled and hack_result.risk_level == "medium":
+        hack_penalty_multiplier = 0.5
         reward = reward / 2
-        logger.warning(f"[hack_judge] HIGH risk detected — reward zeroed. Reason: {hack_result.reason}")
+        logger.warning(f"[hack_judge] MEDIUM risk detected, reward x0.5. Reason: {hack_result.reason}")
 
     USE_EDITLENS = False
     ai_score = None
@@ -776,12 +812,15 @@ async def agent_loop(data, context):
         elif ai_score > 0.33 and context.is_train:
             reward = reward / 4
             logger.warning(f"[editlens] MEDIUM AI-like (score={ai_score:.3f}) — reward /4.")
-    eval_avg = eval_result["actor_avg"]
     actor_scores = eval_result["actor_scores"]
 
     extra_info = {
         "sotopia/reward": reward,
+        "sotopia/base_training_reward": base_training_reward,
+        "sotopia/weighted_reward": weighted_reward,
         "sotopia/eval_avg": eval_avg,
+        "sotopia/hack_penalty_enabled": int(hack_penalty_enabled),
+        "sotopia/hack_penalty_multiplier": hack_penalty_multiplier,
         "sotopia/hack_low": int(hack_result.risk_level == "low"),
         "sotopia/hack_medium": int(hack_result.risk_level == "medium"),
         "sotopia/hack_high": int(hack_result.risk_level == "high"),
@@ -789,8 +828,8 @@ async def agent_loop(data, context):
         "sotopia/editlens_medium": 0 if ai_score is None else int(0.33 < ai_score <= 0.67),
         "sotopia/editlens_high": 0 if ai_score is None else int(ai_score > 0.67),
         "sotopia/editlens_failed": int(editlens_failed),
-        "all/score": 0.1 * eval_result["actor_avg"],
-        "all/score_v1": 0.1 * eval_result["actor_avg"],
+        "all/score": reward,
+        "all/score_v1": reward,
     }
     extra_info.update(_t)
     for dim, s in actor_scores.items():
@@ -848,11 +887,37 @@ async def agent_loop(data, context):
         if actor_agent.think_format_correct() == 0 and context.is_train:
             use_reward = reward / 2
         else:
-            use_reward = 0.1 * eval_result["actor_avg"]
+            use_reward = reward
+        extra_info["sotopia/use_reward"] = use_reward
         output = await actor_agent.get_agent_output(use_reward, extra_info=extra_info, teacher_prompt=teacher_prompt)
 
     extra_info["sotopia/postprocess_time"] = _t["sotopia/postprocess_time"]
     extra_info["sotopia/total_time"] = sum(_t.values())
+
+    rollout_log_path = os.getenv("SOTOPIA_ROLLOUT_LOG_PATH", "")
+    rollout_log_every = _env_int("SOTOPIA_ROLLOUT_LOG_EVERY", 0)
+    try:
+        row_index = int(row.get("index", 0))
+    except (TypeError, ValueError):
+        row_index = 0
+    if rollout_log_path and (rollout_log_every <= 1 or row_index % rollout_log_every == 0):
+        _append_rollout_log(
+            rollout_log_path,
+            {
+                "global_step": context.global_step,
+                "is_train": context.is_train,
+                "index": row.get("index"),
+                "eval_position": eval_position,
+                "actor_name": actor_name,
+                "partner_name": partner_name,
+                "scenario": scenario,
+                "actor_goal": actor_goal,
+                "conversation_log": conversation_log,
+                "hack_result": hack_result.model_dump(),
+                "extra_info": extra_info,
+                "raw_eval": eval_result["raw_eval"],
+            },
+        )
 
     if getattr(context.config.algorithm, "agent_version", None) == "copy" and context.is_train and hint:
         with timer(_t, "sotopia/hint_agent_time"):

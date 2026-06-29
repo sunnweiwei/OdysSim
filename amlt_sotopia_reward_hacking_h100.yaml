@@ -1,0 +1,53 @@
+description: sotopia_reward_hacking_osim8b_exposure
+
+target:
+  service: sing
+  name: msrresrchbasicvc
+
+environment:
+  image: amlt-sing/acpt-torch2.8.x-py3.10-cuda12.6-ubuntu22.04
+
+code:
+  local_dir: $CONFIG_DIR
+
+jobs:
+  - name: sotopia_reward_hacking_osim8b_exposure
+    sku: 80G8-H100-IB-NvLink
+    sla_tier: Basic
+    process_count_per_node: 0
+    command:
+      - nvidia-smi
+      - bash scripts/run_sotopia_reward_hacking_h100.sh
+    submit_args:
+      max_attempts: 1
+      env:
+        NCCL_DEBUG: "WARN"
+        AMLT_DOCKERFILE_TEMPLATE: "default"
+        AZCOPY_AUTO_LOGIN_TYPE: "AZCLI"
+        WANDB_ENTITY: "fireballoon"
+        WANDB_PROJECT: "tau"
+        PROJECT_NAME: "tau"
+        EXPERIMENT_NAME: "sotopia-reward-hacking-osim8b-exposure"
+        OPENAI_PROVIDER: "trapi"
+        OPENAI_BASE_URL: "https://trapi.research.microsoft.com/redmond/interactive/openai/v1"
+        JUDGE_MODEL_NAME: "gpt-5.4-mini_2026-03-17"
+        ACTOR_MODEL_PATH: "cmu-lti/osim-8b-mid"
+        AGENT_VERSION: "default"
+        SOTOPIA_HACK_PENALTY_MODE: "audit"
+        OPENAI_CALL_LOG_PATH: "outputs/openai_monitor/problem_calls.jsonl"
+        SOTOPIA_ROLLOUT_LOG_PATH: "outputs/openai_monitor/sotopia_rollouts.jsonl"
+        SOTOPIA_ROLLOUT_LOG_EVERY: "8"
+        N_GPUS: "8"
+        TRAIN_BATCH_SIZE: "64"
+        PPO_MINI_BATCH_SIZE: "16"
+        N_RESP_PER_PROMPT: "8"
+        N_RESP_PER_PROMPT_VAL: "1"
+        AGENT_NUM_WORKERS: "32"
+        TOTAL_STEPS: "200"
+        SAVE_FREQ: "50"
+        TEST_FREQ: "10"
+        MAX_PROMPT_LENGTH: "8192"
+        MAX_RESPONSE_LENGTH: "4096"
+        LR_WARMUP_STEPS_RATIO: "0.1"
+        HF_TOKEN: ""
+        WANDB_API_KEY: "<wandb-api-key>"

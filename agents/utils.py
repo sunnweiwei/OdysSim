@@ -18,9 +18,11 @@ import json
 import logging
 import os
 import re
+import traceback
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 # NOTE: verl (AgentLoopMetrics/AgentLoopOutput) is imported lazily inside
 # AgentContext.get_agent_output — the ONLY place it is used. This keeps the
@@ -104,11 +106,76 @@ _gpt54_client: AsyncOpenAI | None = None
 OPENAI_TIMEOUT = 120  # seconds per API call
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _get_trapi_token_provider():
+    from azure.identity import (
+        AzureCliCredential,
+        ChainedTokenCredential,
+        ManagedIdentityCredential,
+        get_bearer_token_provider,
+    )
+
+    return get_bearer_token_provider(
+        ChainedTokenCredential(AzureCliCredential(), ManagedIdentityCredential()),
+        "api://trapi/.default",
+    )
+
+
+def _resolve_openai_api_key(api_key_env: str, base_url: str | None):
+    api_key = os.getenv(api_key_env)
+    provider = os.getenv("OPENAI_PROVIDER", "").lower()
+    if api_key:
+        return api_key
+    if provider == "trapi" or (base_url and "trapi.research.microsoft.com" in base_url):
+        return _get_trapi_token_provider()
+    return api_key
+
+
+def _messages_preview(messages: list[dict[str, Any]] | str, limit: int = 700) -> str:
+    try:
+        if isinstance(messages, str):
+            text = messages
+        else:
+            text = "\n".join(f"{m.get('role', '?')}: {m.get('content', '')}" for m in messages[-3:])
+        text = re.sub(r"\s+", " ", str(text)).strip()
+        return text[:limit]
+    except Exception:
+        return "<preview unavailable>"
+
+
+def _log_openai_problem(event: str, **payload) -> None:
+    path = os.getenv("OPENAI_CALL_LOG_PATH")
+    if not path:
+        return
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        record = {
+            "time": time.time(),
+            "event": event,
+            **payload,
+        }
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=True, default=str) + "\n")
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"[openai_monitor] failed to write problem log: {e}")
+
+
 def _get_openai_client() -> AsyncOpenAI:
     global _openai_client
     if _openai_client is None:
+        base_url = os.getenv("OPENAI_BASE_URL", None)
         _openai_client = AsyncOpenAI(
-            api_key=os.getenv("OPENAI_API_KEY"), base_url=os.getenv("OPENAI_BASE_URL", None), timeout=OPENAI_TIMEOUT
+            api_key=_resolve_openai_api_key("OPENAI_API_KEY", base_url),
+            base_url=base_url,
+            timeout=OPENAI_TIMEOUT,
         )
     return _openai_client
 
@@ -128,9 +195,10 @@ def _get_gpt54_client() -> AsyncOpenAI:
     Configure via GPT54_OPENAI_API_KEY and GPT54_OPENAI_BASE_URL."""
     global _gpt54_client
     if _gpt54_client is None:
+        base_url = os.getenv("GPT54_OPENAI_BASE_URL", None)
         _gpt54_client = AsyncOpenAI(
-            api_key=os.getenv("GPT54_OPENAI_API_KEY", ""),
-            base_url=os.getenv("GPT54_OPENAI_BASE_URL", None),
+            api_key=_resolve_openai_api_key("GPT54_OPENAI_API_KEY", base_url),
+            base_url=base_url,
             timeout=OPENAI_TIMEOUT,
         )
     return _gpt54_client
@@ -171,9 +239,10 @@ def get_judge_reasoning(default):
 async def call_openai(messages, model="gpt-5-nano", max_retries=3, response_format=None, reasoning_effort="low"):
     if isinstance(messages, str):
         messages = [{"role": "user", "content": messages}]
-    use_fallback = True
+    use_fallback = _env_flag("OPENAI_FORCE_FALLBACK", False)
     for attempt in range(max_retries):
         client, cur_model = _resolve_client_and_model(model, use_fallback)
+        t0 = time.monotonic()
         try:
             kwargs = dict(model=cur_model, messages=messages)
             if reasoning_effort is not None:
@@ -182,9 +251,30 @@ async def call_openai(messages, model="gpt-5-nano", max_retries=3, response_form
                 kwargs["response_format"] = response_format
             response = await client.chat.completions.create(**kwargs)
             if not response.choices[-1].message.content:
+                _log_openai_problem(
+                    "empty_chat_completion",
+                    model=model,
+                    resolved_model=cur_model,
+                    attempt=attempt + 1,
+                    fallback=use_fallback,
+                    elapsed_s=round(time.monotonic() - t0, 3),
+                    messages_preview=_messages_preview(messages),
+                )
                 continue
             return response.choices[-1].message.content or ""
         except Exception as e:
+            _log_openai_problem(
+                "chat_completion_error",
+                model=model,
+                resolved_model=cur_model,
+                attempt=attempt + 1,
+                fallback=use_fallback,
+                elapsed_s=round(time.monotonic() - t0, 3),
+                error_type=type(e).__name__,
+                error=str(e),
+                traceback=traceback.format_exc(limit=2),
+                messages_preview=_messages_preview(messages),
+            )
             if (_is_content_filter_error(e) or _is_server_error(e)) and not use_fallback:
                 print(f"<<<USE FALLBACK>>> ({e})")
                 use_fallback = True
@@ -201,10 +291,11 @@ async def call_openai_parse(messages, text_format, model="gpt-5-nano", max_retri
         messages = [{"role": "user", "content": messages}]
     if "reasoning" not in kwargs and reasoning_effort is not None:
         kwargs["reasoning"] = {"effort": reasoning_effort}
-    use_fallback = True
+    use_fallback = _env_flag("OPENAI_FORCE_FALLBACK", False)
     parse_failures = 0
     for attempt in range(max_retries + 1):
         client, cur_model = _resolve_client_and_model(model, use_fallback)
+        t0 = time.monotonic()
         try:
             response = await client.responses.parse(
                 model=cur_model,
@@ -214,6 +305,16 @@ async def call_openai_parse(messages, text_format, model="gpt-5-nano", max_retri
             )
             if response.output_parsed is not None:
                 return response.output_parsed.model_dump(by_alias=True)
+            _log_openai_problem(
+                "empty_parsed_response",
+                model=model,
+                resolved_model=cur_model,
+                attempt=attempt + 1,
+                fallback=use_fallback,
+                elapsed_s=round(time.monotonic() - t0, 3),
+                response_status=getattr(response, "status", None),
+                messages_preview=_messages_preview(messages),
+            )
             parse_failures += 1
             if parse_failures >= 2 and not use_fallback:
                 print("<<<USE FALLBACK>>> (output_parsed is None)")
@@ -221,6 +322,18 @@ async def call_openai_parse(messages, text_format, model="gpt-5-nano", max_retri
                 continue
         except Exception as e:
             logging.getLogger(__name__).warning(f"[call_openai_parse] attempt {attempt + 1} failed: {e}")
+            _log_openai_problem(
+                "parsed_response_error",
+                model=model,
+                resolved_model=cur_model,
+                attempt=attempt + 1,
+                fallback=use_fallback,
+                elapsed_s=round(time.monotonic() - t0, 3),
+                error_type=type(e).__name__,
+                error=str(e),
+                traceback=traceback.format_exc(limit=2),
+                messages_preview=_messages_preview(messages),
+            )
             if (_is_content_filter_error(e) or _is_json_truncation_error(e)) and not use_fallback:
                 parse_failures += 1
                 if parse_failures >= 2:
@@ -899,6 +1012,16 @@ class TaskContext:
     is_train: bool
     tokenizer: PreTrainedTokenizer | AutoTokenizer | None = None
     llm_client: LLMClass = None
+    extras: dict[str, Any] = field(default_factory=dict)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.extras.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        return self.extras[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.extras[key] = value
 
 
 async def run_action(env, response):
