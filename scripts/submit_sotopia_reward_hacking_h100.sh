@@ -15,6 +15,9 @@ into a temporary AMLT config and are not written into the repo.
 TRAPI_ACCESS_TOKEN is optional. If unset, this script obtains a short-lived
 token from the current local `az login` for scope api://trapi/.default and
 passes it as OPENAI_API_KEY to the AMLT job.
+
+AMLT_VULN_SCAN_MODE defaults to none because the mgalleycr2 GRPO image is not
+discoverable for Defender scanning from this Azure identity.
 EOF
 }
 
@@ -145,6 +148,7 @@ load_trapi_token_from_az_login
 require_real_env WANDB_API_KEY
 require_real_env OPENAI_API_KEY
 
+export AMLT_VULN_SCAN_MODE="${AMLT_VULN_SCAN_MODE:-none}"
 export AMLT_PROJECT_DIR="${AMLT_PROJECT_DIR:-$(cd .. && pwd)/amlt-projects/odysim_tau}"
 if [ ! -d "$AMLT_PROJECT_DIR" ]; then
   echo "AMLT_PROJECT_DIR does not exist: $AMLT_PROJECT_DIR" >&2

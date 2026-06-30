@@ -5,7 +5,8 @@ target:
   name: msrresrchbasicvc
 
 environment:
-  image: verlai/verl:vllm012.latest
+  registry: mgalleycr2.azurecr.io
+  image: verl:custom-vllm0.22.1-tf5.10.2
 
 code:
   local_dir: $CONFIG_DIR
