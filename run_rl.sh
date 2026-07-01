@@ -58,41 +58,44 @@ train_files="${TRAIN_FILES:-$rl_dir/$train_rel}"
 val_files="${VAL_FILES:-$val_dir/$val_rel}"
 
 actor_model_path="${ACTOR_MODEL_PATH:-Qwen3-8B-Instruct}"
+project_name="${PROJECT_NAME:-${WANDB_PROJECT:-ditto}}"
 
 # ── Hyperparameters ───────────────────────────────────────────────────────────
 default_agent_loop="agent_hub"
 # agent_version: "copy" = Ditto (verbal feedback), "default" = vanilla GRPO.
-agent_version="default"
+agent_version="${AGENT_VERSION:-default}"
 
-loss_mode="vanilla"
-clip_ratio_low=0.2
-clip_ratio_high=0.28
+loss_mode="${LOSS_MODE:-vanilla}"
+clip_ratio_low="${CLIP_RATIO_LOW:-0.2}"
+clip_ratio_high="${CLIP_RATIO_HIGH:-0.28}"
 
-actor_lr=5e-6
+actor_lr="${ACTOR_LR:-5e-6}"
+lr_warmup_steps_ratio="${LR_WARMUP_STEPS_RATIO:-0.1}"
 
-max_prompt_length=$((1024 * 8))
-max_response_length=$((1024 * 8))
+max_prompt_length="${MAX_PROMPT_LENGTH:-$((1024 * 8))}"
+max_response_length="${MAX_RESPONSE_LENGTH:-$((1024 * 8))}"
 actor_max_token_len_per_gpu=$(((max_prompt_length + max_response_length) * 8))
 
-usp_size=1
-train_batch_size=64
-ppo_mini_batch_size=16
-n_resp_per_prompt=8
-n_resp_per_prompt_val=1
-infer_tp=1
+usp_size="${USP_SIZE:-1}"
+train_batch_size="${TRAIN_BATCH_SIZE:-64}"
+ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE:-16}"
+n_resp_per_prompt="${N_RESP_PER_PROMPT:-8}"
+n_resp_per_prompt_val="${N_RESP_PER_PROMPT_VAL:-1}"
+infer_tp="${INFER_TP:-1}"
 
-lora_rank=32
-lora_alpha=64
+lora_rank="${LORA_RANK:-32}"
+lora_alpha="${LORA_ALPHA:-64}"
 
-n_gpus=8
-total_steps=200
-save_freq=50
-resume_mode=auto
+n_gpus="${N_GPUS:-8}"
+total_steps="${TOTAL_STEPS:-200}"
+save_freq="${SAVE_FREQ:-50}"
+test_freq="${TEST_FREQ:-5}"
+resume_mode="${RESUME_MODE:-auto}"
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 export HF_HOME=$OUTPUT_DIR/hf_cache
 export WANDB_DIR=$OUTPUT_DIR/wandb
-mkdir -p $OUTPUT_DIR/hf_cache $OUTPUT_DIR/wandb $OUTPUT_DIR/$EXPERIMENT_NAME
+mkdir -p "$OUTPUT_DIR/hf_cache" "$OUTPUT_DIR/wandb" "$OUTPUT_DIR/$EXPERIMENT_NAME"
 
 # ── Train ─────────────────────────────────────────────────────────────────────
 export TURNOFF_THINK=1
@@ -102,7 +105,7 @@ NCCL_DEBUG=WARN python3 train_ppo.py \
   algorithm.adv_estimator=foldgrpo \
   actor_rollout_ref.rollout.agent.agent_loop_config_path=agents/agents.yaml \
   actor_rollout_ref.rollout.agent.default_agent_loop=$default_agent_loop \
-  actor_rollout_ref.rollout.agent.num_workers=64 \
+  actor_rollout_ref.rollout.agent.num_workers=${AGENT_NUM_WORKERS:-64} \
   data.train_files="$train_files" \
   data.val_files="$val_files" \
   data.train_batch_size=$train_batch_size \
@@ -118,6 +121,7 @@ NCCL_DEBUG=WARN python3 train_ppo.py \
   actor_rollout_ref.model.lora_alpha=$lora_alpha \
   actor_rollout_ref.model.target_modules=all-linear \
   actor_rollout_ref.actor.optim.lr=$actor_lr \
+  actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=$lr_warmup_steps_ratio \
   actor_rollout_ref.actor.ppo_mini_batch_size=$ppo_mini_batch_size \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$actor_max_token_len_per_gpu \
   actor_rollout_ref.actor.use_kl_loss=False \
@@ -147,7 +151,7 @@ NCCL_DEBUG=WARN python3 train_ppo.py \
   trainer.n_gpus_per_node=$n_gpus \
   trainer.nnodes=1 \
   trainer.logger='["console","wandb"]' \
-  trainer.project_name=ditto \
+  trainer.project_name=$project_name \
   trainer.experiment_name=$EXPERIMENT_NAME \
   trainer.val_before_train=True \
   trainer.save_freq=$save_freq \
@@ -155,6 +159,6 @@ NCCL_DEBUG=WARN python3 train_ppo.py \
   trainer.max_actor_ckpt_to_keep=10 \
   trainer.max_critic_ckpt_to_keep=10 \
   trainer.default_local_dir=$OUTPUT_DIR/$EXPERIMENT_NAME \
-  trainer.test_freq=5 \
+  trainer.test_freq=$test_freq \
   trainer.total_training_steps=$total_steps \
   trainer.total_epochs=10000
