@@ -27,6 +27,7 @@ When working with Megatron:
 """
 
 import getpass
+import inspect
 import logging
 import os
 from dataclasses import asdict
@@ -107,6 +108,20 @@ def _monkey_patch_compute_logits(model, vocab_size: int):
         return logits
 
     model.compute_logits = MethodType(compute_logits, model)
+
+
+def _worker_wrapper_init_kwargs(vllm_config):
+    try:
+        parameters = inspect.signature(WorkerWrapperBase.__init__).parameters
+    except (TypeError, ValueError):
+        return {"vllm_config": vllm_config}
+
+    accepts_vllm_config = "vllm_config" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+    )
+    if accepts_vllm_config:
+        return {"vllm_config": vllm_config}
+    return {}
 
 
 class vLLMAsyncRollout(BaseRollout):
@@ -202,7 +217,7 @@ class vLLMAsyncRollout(BaseRollout):
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
 
-        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
+        self.inference_engine = WorkerWrapperBase(**_worker_wrapper_init_kwargs(self.vllm_config))
         self.inference_engine.init_worker(all_kwargs)
 
     def _load_model(self, *args, **kwargs):
