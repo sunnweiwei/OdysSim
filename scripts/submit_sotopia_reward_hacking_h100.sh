@@ -8,6 +8,9 @@ usage() {
 Usage:
   WANDB_API_KEY=... bash scripts/submit_sotopia_reward_hacking_h100.sh [--dry-run] [extra amlt run args...]
 
+Set AMLT_CONFIG to choose a different AMLT YAML. Defaults to
+amlt_sotopia_reward_hacking_h100.yaml.
+
 HF_TOKEN is optional for public data/model access. If set or found in the local
 Hugging Face CLI cache, it is passed to the AMLT job. Secrets are injected only
 into a temporary AMLT config and are not written into the repo.
@@ -168,7 +171,8 @@ import sys
 
 repo_dir = Path.cwd()
 output = Path(sys.argv[1])
-config = Path("amlt_sotopia_reward_hacking_h100.yaml").read_text(encoding="utf-8")
+config_path = Path(os.environ.get("AMLT_CONFIG", "amlt_sotopia_reward_hacking_h100.yaml"))
+config = config_path.read_text(encoding="utf-8")
 config = config.replace("local_dir: $CONFIG_DIR", f"local_dir: {repo_dir}")
 config = config.replace(
     'WANDB_API_KEY: "<wandb-api-key>"',
