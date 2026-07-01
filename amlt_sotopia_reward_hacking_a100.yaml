@@ -1,8 +1,8 @@
-description: sotopia_reward_hacking_osim8b_exposure_a100
+description: sotopia_reward_hacking_osim8b_exposure_a100_40g_premium
 
 target:
   service: sing
-  name: msrresrchbasicvc
+  name: palisades24
 
 environment:
   registry: mgalleycr2.azurecr.io
@@ -12,8 +12,8 @@ code:
   local_dir: $CONFIG_DIR
 
 jobs:
-  - name: sotopia_reward_hacking_osim8b_exposure_a100
-    sku: 80G8-A100-IB-NvLink
+  - name: sotopia_reward_hacking_osim8b_exposure_a100_40g_premium
+    sku: 40G8-A100-IB-NvLink
     sla_tier: Premium
     process_count_per_node: 0
     command:
@@ -28,7 +28,7 @@ jobs:
         WANDB_ENTITY: "fireballoon"
         WANDB_PROJECT: "tau"
         PROJECT_NAME: "tau"
-        EXPERIMENT_NAME: "sotopia-reward-hacking-osim8b-exposure-a100"
+        EXPERIMENT_NAME: "sotopia-reward-hacking-osim8b-exposure-a100-40g-premium"
         OPENAI_PROVIDER: "trapi"
         OPENAI_TRAPI_AUTH: "local_token"
         OPENAI_BASE_URL: "https://trapi.research.microsoft.com/redmond/interactive/openai/v1"
