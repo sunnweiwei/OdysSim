@@ -14,7 +14,7 @@ code:
 jobs:
   - name: sotopia_reward_hacking_osim8b_exposure
     sku: 80G8-H100-IB-NvLink
-    sla_tier: Basic
+    sla_tier: Premium
     process_count_per_node: 0
     command:
       - nvidia-smi

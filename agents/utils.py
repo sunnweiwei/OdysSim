@@ -121,8 +121,9 @@ def _get_trapi_token_provider():
         get_bearer_token_provider,
     )
 
+    managed_identity_client_id = os.getenv("AZURE_CLIENT_ID") or None
     return get_bearer_token_provider(
-        ChainedTokenCredential(AzureCliCredential(), ManagedIdentityCredential()),
+        ChainedTokenCredential(AzureCliCredential(), ManagedIdentityCredential(client_id=managed_identity_client_id)),
         "api://trapi/.default",
     )
 

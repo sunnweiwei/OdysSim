@@ -79,8 +79,9 @@ async def main():
     else:
         from azure.identity import AzureCliCredential, ChainedTokenCredential, ManagedIdentityCredential, get_bearer_token_provider
 
+        managed_identity_client_id = os.getenv("AZURE_CLIENT_ID") or None
         api_key = api_key or get_bearer_token_provider(
-            ChainedTokenCredential(AzureCliCredential(), ManagedIdentityCredential()),
+            ChainedTokenCredential(AzureCliCredential(), ManagedIdentityCredential(client_id=managed_identity_client_id)),
             "api://trapi/.default",
         )
     client = AsyncOpenAI(

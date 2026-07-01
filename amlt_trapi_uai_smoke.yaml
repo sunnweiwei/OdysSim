@@ -1,0 +1,58 @@
+description: trapi_uai_smoke
+
+target:
+  service: sing
+  name: msrresrchbasicvc
+
+environment:
+  image: amlt-sing/acpt-torch2.7.1-py3.10-cuda12.6-ubuntu22.04
+
+code:
+  local_dir: .
+
+jobs:
+  - name: trapi_uai_smoke
+    sku: 8C7
+    sla_tier: Premium
+    process_count_per_node: 0
+    command:
+      - python3 -m pip install --user -q "azure-identity>=1.16.0" "openai>=1.0"
+      - |
+        python3 - <<'PY'
+        import asyncio
+        import os
+        from datetime import datetime, timezone
+
+        from azure.identity import ManagedIdentityCredential, get_bearer_token_provider
+        from openai import AsyncOpenAI
+
+        base_url = os.environ["OPENAI_BASE_URL"]
+        model = os.environ["JUDGE_MODEL_NAME"]
+        client_id = os.environ["AZURE_CLIENT_ID"]
+        credential = ManagedIdentityCredential(client_id=client_id)
+
+        token = credential.get_token("api://trapi/.default")
+        print("credential_token_expires_utc", datetime.fromtimestamp(token.expires_on, timezone.utc).isoformat())
+
+        async def main():
+            client = AsyncOpenAI(
+                api_key=get_bearer_token_provider(credential, "api://trapi/.default"),
+                base_url=base_url,
+                timeout=45,
+            )
+            response = await client.responses.create(
+                model=model,
+                input="Reply with OK only.",
+                max_output_tokens=16,
+            )
+            print("trapi_preflight_status", getattr(response, "status", "unknown"))
+
+        asyncio.run(main())
+        PY
+    submit_args:
+      max_attempts: 1
+      env:
+        _AZUREML_SINGULARITY_JOB_UAI: "/subscriptions/2cd190bb-b42a-477c-b1bb-2f20932d8dc5/resourceGroups/mgalley/providers/Microsoft.ManagedIdentity/userAssignedIdentities/mgalleymi"
+        AZURE_CLIENT_ID: "0b807ad1-11d1-4153-b03e-162fa524e8d7"
+        OPENAI_BASE_URL: "https://trapi.research.microsoft.com/redmond/interactive/openai/v1"
+        JUDGE_MODEL_NAME: "gpt-5.4-mini_2026-03-17"
