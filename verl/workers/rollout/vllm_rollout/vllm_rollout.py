@@ -124,6 +124,22 @@ def _worker_wrapper_init_kwargs(vllm_config):
     return {}
 
 
+def _execute_worker_method(inference_engine, method: str | bytes, *args, **kwargs):
+    try:
+        execute_method = object.__getattribute__(inference_engine, "execute_method")
+    except AttributeError:
+        execute_method = None
+    if execute_method is not None:
+        return execute_method(method, *args, **kwargs)
+
+    if isinstance(method, bytes):
+        method = pickle.loads(method)
+    if not isinstance(method, str):
+        return method(inference_engine.worker, *args, **kwargs)
+    target = getattr(inference_engine, method)
+    return target(*args, **kwargs)
+
+
 class vLLMAsyncRollout(BaseRollout):
     """vLLMAsyncRollout is a thin wrapper of WorkerWrapperBase, which is engine in single worker process."""
 
@@ -230,7 +246,7 @@ class vLLMAsyncRollout(BaseRollout):
         elif method == "load_model":
             return self._load_model(*args, **kwargs)
         else:
-            return self.inference_engine.execute_method(method, *args, **kwargs)
+            return _execute_worker_method(self.inference_engine, method, *args, **kwargs)
 
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in GPU memory.
