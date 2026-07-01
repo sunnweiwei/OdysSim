@@ -76,6 +76,30 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
+def _as_token_id_list(tokens: Any) -> list[int]:
+    if tokens is None:
+        return []
+    if isinstance(tokens, dict) and "input_ids" in tokens:
+        return _as_token_id_list(tokens["input_ids"])
+    if hasattr(tokens, "input_ids"):
+        return _as_token_id_list(tokens.input_ids)
+    if hasattr(tokens, "ids"):
+        return _as_token_id_list(tokens.ids)
+    if hasattr(tokens, "tolist"):
+        return _as_token_id_list(tokens.tolist())
+    if isinstance(tokens, (list, tuple)):
+        out = []
+        for token in tokens:
+            if hasattr(token, "ids") or hasattr(token, "input_ids") or hasattr(token, "tolist"):
+                out.extend(_as_token_id_list(token))
+            elif isinstance(token, (list, tuple)):
+                out.extend(_as_token_id_list(token))
+            else:
+                out.append(int(token))
+        return out
+    return [int(tokens)]
+
+
 class ExternalZeroMQDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
 
@@ -466,6 +490,7 @@ class vLLMHttpServerBase:
         video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
+        prompt_ids = _as_token_id_list(prompt_ids)
         # Calculate the maximum possible new tokens based on available context space
         # This serves as a safety upper bound
         max_possible_tokens = self.config.max_model_len - len(prompt_ids)

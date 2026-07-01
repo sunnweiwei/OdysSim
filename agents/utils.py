@@ -41,6 +41,30 @@ async def post_chat(messages, folder, title):
     return
 
 
+def _as_token_id_list(tokens) -> list[int]:
+    if tokens is None:
+        return []
+    if isinstance(tokens, dict) and "input_ids" in tokens:
+        return _as_token_id_list(tokens["input_ids"])
+    if hasattr(tokens, "input_ids"):
+        return _as_token_id_list(tokens.input_ids)
+    if hasattr(tokens, "ids"):
+        return _as_token_id_list(tokens.ids)
+    if hasattr(tokens, "tolist"):
+        return _as_token_id_list(tokens.tolist())
+    if isinstance(tokens, (list, tuple)):
+        out = []
+        for token in tokens:
+            if hasattr(token, "ids") or hasattr(token, "input_ids") or hasattr(token, "tolist"):
+                out.extend(_as_token_id_list(token))
+            elif isinstance(token, (list, tuple)):
+                out.extend(_as_token_id_list(token))
+            else:
+                out.append(int(token))
+        return out
+    return [int(tokens)]
+
+
 async def process_post_chat(data, context, chat, output, format_think=False, extra=None):
     if not context.is_train:
         import datetime
@@ -597,7 +621,7 @@ class CallAPI(LLMClass):  # Call external API (OpenAI-compatible)
                     )
                     text = response.choices[0].message.content or ""
 
-                text_ids = self.tokenizer.encode(text, add_special_tokens=False)
+                text_ids = _as_token_id_list(self.tokenizer.encode(text, add_special_tokens=False))
 
                 return {
                     "choices": [
@@ -638,7 +662,9 @@ def truncate_prompt(chat, prompt_length, tokenizer, prompt_turn, apply_chat_temp
     while exceed_len > 0:  # truncate long user prompt
         print("[PROMPT] now exceed", exceed_len, "work on cut turn", _cut_idx)
         chat[_cut_idx]["content"] = tokenizer.decode(
-            tokenizer.encode(chat[_cut_idx]["content"], add_special_tokens=False)[exceed_len + 4 :],
+            _as_token_id_list(tokenizer.encode(chat[_cut_idx]["content"], add_special_tokens=False))[
+                exceed_len + 4 :
+            ],
             add_special_tokens=False,
         )
         exceed_len = len(_apply(chat[:prompt_turn], tokenize=True)) + 8 - prompt_length
@@ -698,15 +724,25 @@ class AgentContext:
         self.prompt_ids_len = len(sum(self.chat_ids[:prompt_turn], []))
 
     def get_turn_context(self, i):
-        tokens = self._apply_chat_template(self.chat[: i + 1], add_generation_prompt=False, tokenize=True)
-        prev = self._apply_chat_template(self.chat[:i], add_generation_prompt=False, tokenize=True) if i > 0 else []
+        tokens = _as_token_id_list(
+            self._apply_chat_template(self.chat[: i + 1], add_generation_prompt=False, tokenize=True)
+        )
+        prev = (
+            _as_token_id_list(self._apply_chat_template(self.chat[:i], add_generation_prompt=False, tokenize=True))
+            if i > 0
+            else []
+        )
         turn_tokens = tokens[len(prev) :]
         return turn_tokens
 
     def get_generation_prompt(self):
         if self.generation_prompt is None:
-            tokens = self._apply_chat_template(self.chat, add_generation_prompt=False, tokenize=True)
-            add_tokens = self._apply_chat_template(self.chat, add_generation_prompt=True, tokenize=True)
+            tokens = _as_token_id_list(
+                self._apply_chat_template(self.chat, add_generation_prompt=False, tokenize=True)
+            )
+            add_tokens = _as_token_id_list(
+                self._apply_chat_template(self.chat, add_generation_prompt=True, tokenize=True)
+            )
             self.generation_prompt = add_tokens[len(tokens) :]
         return self.generation_prompt
 
@@ -833,8 +869,8 @@ class AgentContext:
         if agent_role is not None:
             extra_fields["agent_role"] = agent_role
         if teacher_prompt is not None:
-            extra_fields["teacher_prompt_ids"] = self._apply_chat_template(
-                teacher_prompt, add_generation_prompt=True, tokenize=True
+            extra_fields["teacher_prompt_ids"] = _as_token_id_list(
+                self._apply_chat_template(teacher_prompt, add_generation_prompt=True, tokenize=True)
             )
 
         from verl.experimental.agent_loop.agent_loop import AgentLoopMetrics, AgentLoopOutput
