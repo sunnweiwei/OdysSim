@@ -25,7 +25,6 @@ with open(os.path.join(version_folder, "verl/version/version")) as f:
 
 install_requires = [
     "accelerate",
-    "azure-identity>=1.16.0",
     "codetiming",
     "datasets",
     "dill",
