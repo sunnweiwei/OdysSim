@@ -245,9 +245,28 @@ def _is_json_truncation_error(e: Exception) -> bool:
     return "json_invalid" in msg or "EOF while parsing" in msg
 
 
+_TRAPI_MODEL_ALIASES = {
+    "gpt-5.4-mini": "gpt-5.4-mini_2026-03-17",
+    # No accessible gpt-5.4-nano deployment was found on this TRAPI endpoint;
+    # keep the same 5.4 family and use the closest available mini deployment.
+    "gpt-5.4-nano": "gpt-5.4-mini_2026-03-17",
+    "gpt-5.2": "gpt-5.2_2025-12-11",
+    "gpt-5-mini": "gpt-5-mini_2025-08-07",
+    "gpt-5-nano": "gpt-5-nano_2025-08-07",
+}
+
+
+def _is_trapi_endpoint() -> bool:
+    base_url = os.getenv("OPENAI_BASE_URL", "")
+    provider = os.getenv("OPENAI_PROVIDER", "").lower()
+    return provider == "trapi" or "trapi.research.microsoft.com" in base_url
+
+
 def _resolve_client_and_model(model: str, use_fallback: bool = False) -> tuple[AsyncOpenAI, str]:
     if use_fallback:
         return _get_fallback_client(), model
+    if _is_trapi_endpoint():
+        model = _TRAPI_MODEL_ALIASES.get(model, model)
     if model == "gpt-5.4":
         return _get_gpt54_client(), "gpt-5.4-2"
     return _get_openai_client(), model
