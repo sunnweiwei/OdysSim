@@ -91,6 +91,9 @@ total_steps="${TOTAL_STEPS:-200}"
 save_freq="${SAVE_FREQ:-50}"
 test_freq="${TEST_FREQ:-5}"
 resume_mode="${RESUME_MODE:-auto}"
+attn_implementation="${ATTN_IMPLEMENTATION:-flash_attention_2}"
+use_remove_padding="${USE_REMOVE_PADDING:-True}"
+use_fused_kernels="${USE_FUSED_KERNELS:-True}"
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 export HF_HOME=$OUTPUT_DIR/hf_cache
@@ -114,9 +117,10 @@ NCCL_DEBUG=WARN python3 train_ppo.py \
   data.filter_overlong_prompts=True \
   data.truncation=error \
   actor_rollout_ref.model.path=$actor_model_path \
-  actor_rollout_ref.model.use_remove_padding=True \
+  actor_rollout_ref.model.override_config.attn_implementation=$attn_implementation \
+  actor_rollout_ref.model.use_remove_padding=$use_remove_padding \
   actor_rollout_ref.model.enable_gradient_checkpointing=True \
-  actor_rollout_ref.model.use_fused_kernels=True \
+  actor_rollout_ref.model.use_fused_kernels=$use_fused_kernels \
   actor_rollout_ref.model.lora_rank=$lora_rank \
   actor_rollout_ref.model.lora_alpha=$lora_alpha \
   actor_rollout_ref.model.target_modules=all-linear \
