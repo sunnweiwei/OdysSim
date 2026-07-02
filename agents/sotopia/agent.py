@@ -777,10 +777,22 @@ async def agent_loop(data, context):
     weighted_reward = eval_result["reward"]
     eval_avg = eval_result["actor_avg"]
     base_training_reward = 0.1 * eval_avg
+    reward_mode = os.getenv("SOTOPIA_TRAIN_REWARD_MODE", "eval_avg").strip().lower()
+    if reward_mode in {"weighted", "reference", "sotopia_reward"}:
+        selected_training_reward = weighted_reward
+        reward_mode_is_weighted = 1
+    elif reward_mode in {"eval_avg", "base", "raw_avg", "actor_avg"}:
+        selected_training_reward = base_training_reward
+        reward_mode_is_weighted = 0
+    else:
+        raise ValueError(
+            "SOTOPIA_TRAIN_REWARD_MODE must be one of: "
+            "eval_avg, base, raw_avg, actor_avg, weighted, reference, sotopia_reward"
+        )
     hack_penalty_mode = os.getenv("SOTOPIA_HACK_PENALTY_MODE", "audit").strip().lower()
     hack_penalty_enabled = context.is_train and hack_penalty_mode in {"on", "true", "1", "penalize", "train"}
     hack_penalty_multiplier = 1.0
-    reward = base_training_reward
+    reward = selected_training_reward
     if hack_penalty_enabled and hack_result.risk_level == "high":
         hack_penalty_multiplier = 0.25
         reward = reward / 4
@@ -811,6 +823,7 @@ async def agent_loop(data, context):
         "sotopia/reward": reward,
         "sotopia/base_training_reward": base_training_reward,
         "sotopia/weighted_reward": weighted_reward,
+        "sotopia/reward_mode_weighted": reward_mode_is_weighted,
         "sotopia/eval_avg": eval_avg,
         "sotopia/hack_penalty_enabled": int(hack_penalty_enabled),
         "sotopia/hack_penalty_multiplier": hack_penalty_multiplier,
