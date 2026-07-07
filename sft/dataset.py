@@ -31,18 +31,18 @@ def _wrap_tokenizer(tokenizer):
     """
     Return tokenizer with apply_chat_template that disables thinking for all models.
     Controlled by TURNOFF_THINK env var (default: '1' = True).
-    Tries thinking_budget=0 (Seed/Gemma style) then enable_thinking=False (Qwen3 style),
-    falling back to a plain call if neither is supported.
+    Passes both common non-thinking knobs; templates ignore unknown kwargs.
     """
     turnoff_think = os.getenv("TURNOFF_THINK", "1").lower() not in ("0", "false", "no")
+
     _orig = tokenizer.apply_chat_template
 
     def _patched(*args, **kwargs):
         if not turnoff_think:
             return _orig(*args, **kwargs)
-        for extra in [{"thinking_budget": 0}, {"enable_thinking": False}, {}]:
+        for extra in [{"enable_thinking": False, "thinking_budget": 0}, {}]:
             try:
-                return _orig(*args, **{**extra, **kwargs})
+                return _orig(*args, **{**kwargs, **extra})
             except TypeError:
                 continue
         return _orig(*args, **kwargs)

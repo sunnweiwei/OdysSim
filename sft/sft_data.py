@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import re
 
 import torch
@@ -25,6 +26,15 @@ def _has_consecutive_tool_turns(messages: list) -> bool:
         if messages[i].get("role") == "tool" and messages[i + 1].get("role") == "tool":
             return True
     return False
+
+
+def _turnoff_think_enabled() -> bool:
+    return os.getenv("TURNOFF_THINK", "1").lower() not in ("0", "false", "no")
+
+
+def _has_context_dependent_thinking_template(tokenizer) -> bool:
+    template = getattr(tokenizer, "chat_template", None) or ""
+    return "last_query_index" in template and "<think>" in template
 
 
 def _get_process_fn(data_source: str):
@@ -232,6 +242,11 @@ def _tokenize_chat(messages: list, tokenizer, generation_role: str = "assistant"
             # Benign: VL-Instruct merges consecutive tool messages; per-turn
             # closes/reopens. Same tool-call sequence, different separator
             # tokens, all masked off loss. Train on per-turn tokens.
+            pass
+        elif _turnoff_think_enabled() and _has_context_dependent_thinking_template(tokenizer):
+            # Qwen3 renders an assistant turn differently when it is the current
+            # generation target than when it is historical context. For SFT we
+            # want per-turn target formatting in non-thinking mode.
             pass
         else:
             raise AssertionError(
