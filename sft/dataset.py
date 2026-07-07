@@ -24,6 +24,26 @@ from torch.utils.data import Dataset
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
+# Qwen3's default template renders earlier assistant turns differently once a
+# later user turn is appended. SFT turn-splitting below assumes prefix-stability.
+_PREFIX_STABLE_CHAT_TEMPLATE = """{%- for message in messages %}
+    {%- if message.content is string %}
+        {%- set content = message.content %}
+    {%- else %}
+        {%- set content = '' %}
+    {%- endif %}
+    {{- '<|im_start|>' + message.role + '\n' + content + '<|im_end|>\n' }}
+{%- endfor %}
+{%- if add_generation_prompt %}
+    {{- '<|im_start|>assistant\n' }}
+{%- endif %}"""
+
+
+def _needs_prefix_stable_template(tokenizer) -> bool:
+    template = getattr(tokenizer, "chat_template", None) or ""
+    return "last_query_index" in template and "<think>" in template
+
+
 # ── Tokenizer wrapper ──────────────────────────────────────────────────────────
 
 
@@ -35,6 +55,9 @@ def _wrap_tokenizer(tokenizer):
     falling back to a plain call if neither is supported.
     """
     turnoff_think = os.getenv("TURNOFF_THINK", "1").lower() not in ("0", "false", "no")
+    if turnoff_think and _needs_prefix_stable_template(tokenizer):
+        tokenizer.chat_template = _PREFIX_STABLE_CHAT_TEMPLATE
+
     _orig = tokenizer.apply_chat_template
 
     def _patched(*args, **kwargs):
