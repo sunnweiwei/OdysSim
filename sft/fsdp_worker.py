@@ -20,6 +20,7 @@ from verl.single_controller.base.decorator import Dispatch, make_nd_compute_data
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.device import get_device_id
 from verl.utils.fsdp_utils import (
+    fsdp_version,
     load_fsdp_model_to_gpu,
     load_fsdp_optimizer,
     offload_fsdp_model_to_cpu,
@@ -40,6 +41,7 @@ class SFTAsyncActorRolloutRefWorker(AsyncActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         super().init_model()
+        self._use_configured_tokenizer_for_sft()
         # Save the user's intended offload settings (controlling vLLM eval only),
         # then disable them so the base class never offloads during training.
         self._sft_offload_param = self._is_offload_param
@@ -62,7 +64,7 @@ class SFTAsyncActorRolloutRefWorker(AsyncActorRolloutRefWorker):
                 model=self.actor_module_fsdp,
                 optimizer=self.actor_optimizer,
                 lr_scheduler=self.actor_lr_scheduler,
-                processing_class=self.processor if self.processor is not None else self.tokenizer,
+                processing_class=self._processing_class(),
                 checkpoint_config=OmegaConf.create(
                     {
                         "save_contents": ["model", "optimizer", "extra"],
@@ -70,6 +72,49 @@ class SFTAsyncActorRolloutRefWorker(AsyncActorRolloutRefWorker):
                     }
                 ),
             )
+
+    def _processing_class(self):
+        return self.processor if self.processor is not None else self.tokenizer
+
+    def _use_configured_tokenizer_for_sft(self):
+        tokenizer_path = self.config.model.get("tokenizer_path")
+        if not self._is_actor or not tokenizer_path or tokenizer_path == self.config.model.path:
+            return
+
+        from verl.utils import hf_processor, hf_tokenizer
+        from verl.utils.fs import copy_to_local
+
+        local_tokenizer_path = copy_to_local(tokenizer_path, use_shm=self.config.model.get("use_shm", False))
+        trust_remote_code = self.config.model.get("trust_remote_code", False)
+        self.tokenizer = hf_tokenizer(local_tokenizer_path, trust_remote_code=trust_remote_code)
+        self.processor = hf_processor(local_tokenizer_path, trust_remote_code=trust_remote_code)
+
+        token_config = {
+            "bos_token_id": self.tokenizer.bos_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "pad_token_id": self.tokenizer.pad_token_id,
+        }
+        config_source = tokenizer_path
+        actor_module = getattr(self, "actor_module", None)
+        if actor_module is None and hasattr(self, "actor_module_fsdp"):
+            if fsdp_version(self.actor_module_fsdp) == 1:
+                actor_module = self.actor_module_fsdp._fsdp_wrapped_module
+            else:
+                actor_module = self.actor_module_fsdp
+        for model_config in [getattr(self, "actor_model_config", None), getattr(actor_module, "config", None)]:
+            if model_config is None:
+                continue
+            for key, value in token_config.items():
+                setattr(model_config, key, value)
+            model_config.name_or_path = config_source
+
+        self.checkpoint_manager = FSDPCheckpointManager(
+            model=self.actor_module_fsdp,
+            optimizer=self.actor.actor_optimizer,
+            lr_scheduler=self.actor_lr_scheduler,
+            processing_class=self._processing_class(),
+            checkpoint_config=self.config.actor.checkpoint,
+        )
 
     def _load_optimizer_to_gpu(self):
         """Reload optimizer states from CPU after vLLM eval offloaded them."""

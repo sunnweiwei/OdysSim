@@ -72,6 +72,14 @@ check_files_arg "$train_files" "TRAIN_FILES"
 check_files_arg "$val_files" "VAL_FILES"
 
 actor_model_path="${ACTOR_MODEL_PATH:-Qwen/Qwen3-8B}"
+actor_tokenizer_path="${ACTOR_TOKENIZER_PATH:-}"
+if [[ -z "$actor_tokenizer_path" ]]; then
+  case "$actor_model_path" in
+    *Qwen3-4B*|*osim-4b*) actor_tokenizer_path="cmu-lti/osim-4b-mid" ;;
+    *Qwen3-8B*|*osim-8b*) actor_tokenizer_path="cmu-lti/osim-8b-mid" ;;
+    *) actor_tokenizer_path="$actor_model_path" ;;
+  esac
+fi
 
 actor_lr=1e-5
 actor_lr_warmup_steps=50
@@ -114,6 +122,7 @@ HYDRA_ARGS=(
 
   # Shared actor training config
   "actor_rollout_ref.model.path=$actor_model_path"
+  "actor_rollout_ref.model.tokenizer_path=$actor_tokenizer_path"
   "actor_rollout_ref.model.use_remove_padding=True"
   "actor_rollout_ref.model.enable_gradient_checkpointing=True"
   "actor_rollout_ref.model.use_fused_kernels=True"
