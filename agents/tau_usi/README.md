@@ -1,5 +1,28 @@
 # Tau-USI
 
+## Setup from public sources
+
+Use Python 3.12. This uses the original TauBench (not Tau2), pinned to the
+public revision matching the evaluation's tasks, tools and reward code:
+
+```bash
+python3.12 -m venv .venv-tau
+source .venv-tau/bin/activate
+pip install -r agents/tau_usi/requirements.txt
+pip install --no-deps 'tau-bench @ git+https://github.com/sierra-research/tau-bench.git@59a200c6d575d595120f1cb70fea53cef0632f6b'
+```
+
+Start the runtime from the repository root in a separate terminal:
+
+```bash
+python -m agents.tau_usi.runtime
+```
+
+It listens on `127.0.0.1:8005` and needs no API key or GPU. OdysSim supplies
+the user turns; the runtime executes business tools and computes rewards.
+Use one server process because task states are kept in memory. Set
+`RUNTIME_SERVICE_URL=http://127.0.0.1:8005` for the rollout commands below.
+
 ## Scoring: USI that matches AgentArena
 
 USI is a **distribution-level** metric, so evaluation has two stages and only the
@@ -29,8 +52,11 @@ neither those files nor a recompute.
 ### Run
 
 ```bash
-# Sync the human annotations (only hard requirement; survey_data/ is optional, for the Eval term)
-rsync -az aws-ec2-usrsim:'AgentArena/annotation_analysis/data/tau_bench_tasks_unified.json' data/tau_usi/
+# Download the human annotations (survey_data/ is optional, for the Eval term)
+hf auth login  # First accept access terms at https://huggingface.co/datasets/cmu-lti/tau-usi
+hf download cmu-lti/tau-usi data/tau_bench_tasks_unified.json --repo-type dataset --local-dir data/tau_usi_hf
+mkdir -p data/tau_usi
+cp data/tau_usi_hf/data/tau_bench_tasks_unified.json data/tau_usi/
 
 # Score a one-by-one eval into the USI table (+ writes <label>_aggregate_metrics.json)
 python -m agents.tau_usi.usi_metric score results/v6_task_results.json --label osim-8b-v6
@@ -82,6 +108,13 @@ python -m agents.tau_usi.run_eval --user-sim-model gpt-4o-mini \
     --domains retail:0-9,airline:0-9 --workers 8
 # older models cap completions at 4096 tokens -> add --response-length 4000
 ```
+
+For a one-task smoke check, use `--domains retail:0 --workers 1 --response-length 4000 --out smoke_task_results.json`, then score with
+`python -m agents.tau_usi.usi_metric score smoke_task_results.json --label smoke`.
+The full test set is `retail:0-114,airline:0-49`. A one-task run only checks the
+pipeline, not benchmark quality. The public dataset omits the separate
+`survey_data/survey_comparable_*.json` files: without them the scorer reports
+`Eval=NA` and a five-component USI, not the full six-component score.
 
 ## Replication (2026-03-05)
 

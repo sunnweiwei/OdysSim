@@ -1,0 +1,11 @@
+# Runtime and standalone API evaluation. Install TauBench separately with --no-deps
+# to avoid its unused agent/provider SDKs; see README.md.
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+pydantic>=2,<3
+litellm>=1.80.10,<2
+numpy>=1.26,<3
+aiohttp>=3.9,<4
+omegaconf==2.3.0
+openai>=1.66,<3
+transformers>=4.51,<5
