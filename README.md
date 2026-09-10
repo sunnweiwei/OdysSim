@@ -5,6 +5,7 @@
   [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
   [![OdysSim Models](https://img.shields.io/badge/Hugging%20Face-OdysSim-yellow.svg)](https://huggingface.co/collections/cmu-lti/odyssim)
   [![Ditto arXiv](https://img.shields.io/badge/arXiv-2605.20506-b31b1b.svg)](http://arxiv.org/abs/2605.20506)
+  [![Osim arXiv](https://img.shields.io/badge/arXiv-2606.14199-b31b1b.svg)](http://arxiv.org/abs/2606.14199)
 </div>
 
 We are building **human simulators**: foundation models that imitate how
