@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "recipe/ditto/eval.sh"
+SCRIPT = Path(__file__).resolve().parents[3] / "recipe/ditto/eval.sh"
 
 
 @pytest.mark.parametrize("include", ["unset", "0", "1", "missing", "invalid"])
