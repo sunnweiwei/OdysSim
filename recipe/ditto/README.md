@@ -58,6 +58,39 @@ modes — evaluate any local checkpoint you trained, or evaluate a remote
 API model (Claude, GPT, or any OpenAI-compatible endpoint), or any
 open-source model on HF, all against the same task suite.
 
+### HugAgent (evaluation only)
+
+Set `INCLUDE_HUGAGENT=1` to add `hugagent_bsi` (356 items) and
+`hugagent_bdu` (1,386 items) to the default 27-task suite. These files are
+distributed separately in the gated, CC BY-NC 4.0 dataset
+[`social-atoms/hugagent`](https://huggingface.co/datasets/social-atoms/hugagent).
+Accept the access terms on that page, log in to Hugging Face, and download:
+
+```bash
+huggingface-cli login
+huggingface-cli download social-atoms/hugagent \
+  odyssim/hugagent_bsi_val.parquet odyssim/hugagent_bdu_val.parquet \
+  --repo-type dataset --revision data-v1.1 --local-dir data/hugagent
+
+INCLUDE_HUGAGENT=1 bash recipe/ditto/eval.sh local
+# Or, after configuring the API model:
+INCLUDE_HUGAGENT=1 bash recipe/ditto/eval.sh api
+```
+
+By default the files are read from `$DATA_DIR/hugagent/odyssim`
+(`data/hugagent/odyssim` when `DATA_DIR` is unset). To use an existing download,
+set `HUGAGENT_DATA_DIR` to the directory containing both parquet files. The
+script checks that both exist before starting evaluation. Without
+`INCLUDE_HUGAGENT=1`, the original 27-task suite requires no HugAgent download.
+Data version `data-v1.1` (2026-10-28) corrects 54 `hugagent_bdu` zoning items
+whose gold answer was 0; a download made before that date must be repeated.
+
+The released rows have `split=test` and must not be used for training. Scores
+are BSI exact-match accuracy and BDU tolerance accuracy (within 1 on a 5-point
+scale or 2 on a 10-point scale), averaged over items in each task. Answers must
+be inside `<answer>...</answer>` tags; unparsed responses receive zero. These
+task scores are not the paper's composite ATI score.
+
 ### Local checkpoints (via vLLM)
 
 ```bash

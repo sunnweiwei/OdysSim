@@ -724,6 +724,7 @@ class RayPPOTrainer:
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
             reward_extra_info = result.get("reward_extra_info", {})
+            previous_sample_count = len(sample_scores)
 
             # TODO@Weiwei [Done]: aggregate sub-seqs per gen_uid → one score per rollout slot.
             # Multi-agent: k sub-seqs share same gen_uid (inherited from input); sum their rewards
@@ -770,7 +771,7 @@ class RayPPOTrainer:
                         else (values if isinstance(values, list) else [values])
                     )
                     if key not in reward_extra_infos_dict:
-                        reward_extra_infos_dict[key] = []
+                        reward_extra_infos_dict[key] = [None] * previous_sample_count
                     reward_extra_infos_dict[key].extend([vals[gid_first_idx[g]] for g in ordered_guids])
                 data_source_lst.append(np.array(agg_data_sources))
             else:
@@ -783,7 +784,7 @@ class RayPPOTrainer:
                 reward_extra_infos_dict["reward"].extend(scores)
                 for key, values in reward_extra_info.items():
                     if key not in reward_extra_infos_dict:
-                        reward_extra_infos_dict[key] = []
+                        reward_extra_infos_dict[key] = [None] * previous_sample_count
                     if isinstance(values, np.ndarray):
                         reward_extra_infos_dict[key].extend(values.tolist())
                     else:
@@ -791,6 +792,13 @@ class RayPPOTrainer:
                 data_source_lst.append(
                     test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0])
                 )
+
+            # Different tasks may emit disjoint metrics in different batches.
+            # Pad absent metrics without treating missing observations as zeros.
+            batch_sample_count = len(sample_scores) - previous_sample_count
+            for key, values in reward_extra_infos_dict.items():
+                if key != "reward" and key not in reward_extra_info:
+                    values.extend([None] * batch_sample_count)
 
             # collect num_turns of each prompt
             if "__num_turns__" in test_batch.non_tensor_batch:

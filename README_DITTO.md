@@ -121,6 +121,11 @@ Supported tasks: `sotopia`, `coser`, `lifechoices`, `userllm`,
 
 ## Evaluation
 
+The optional `hugagent_bsi` and `hugagent_bdu` tasks are evaluation only.
+See the [HugAgent setup](recipe/ditto/README.md#hugagent-evaluation-only) for
+the separate gated download and `INCLUDE_HUGAGENT=1` invocation of
+`recipe/ditto/eval.sh`.
+
 <div align="center">
   <img src="assets/soul.png" alt="Soul" width="100%">
 </div>

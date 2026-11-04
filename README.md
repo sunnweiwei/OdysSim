@@ -218,6 +218,12 @@ Supported tasks: `sotopia`, `coser`, `lifechoices`, `userllm`,
 modes: **local** for a checkpoint or open-source HF model via vLLM, and
 **api** for any OpenAI-compatible endpoint.
 
+HugAgent adds two optional evaluation-only tasks, `hugagent_bsi` and
+`hugagent_bdu`. Its gated parquets require a separate download from
+`social-atoms/hugagent`; they are not in `sim-eval-data`. Follow the
+[HugAgent setup](recipe/ditto/README.md#hugagent-evaluation-only), then run
+`INCLUDE_HUGAGENT=1 bash recipe/ditto/eval.sh local` (or `api`).
+
 ```bash
 # Eval the released Ditto-8B checkpoint
 bash recipe/ditto/eval.sh local

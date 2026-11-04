@@ -36,6 +36,7 @@ def _get_agent_loop(data_source: str):
     from agents.coser.coser_agent import agent_loop as coser_agent_loop
     from agents.fantom.agent import agent_loop as fantom_agent_loop
     from agents.hitom.agent import agent_loop as hitom_agent_loop
+    from agents.hugagent.agent import agent_loop as hugagent_agent_loop
     from agents.humanllm.agent import agent_loop as humanllm_agent_loop
     from agents.humanual.agent import agent_loop as humanual_agent_loop
     from agents.instruct.ifbench_agent import agent_loop as ifbench_agent_loop
@@ -91,6 +92,9 @@ def _get_agent_loop(data_source: str):
         "alignx_history16": alignx_agent_loop,
         "humanllm": humanllm_agent_loop,
         "socsci210": socsci210_agent_loop,
+        "hugagent": hugagent_agent_loop,
+        "hugagent_bsi": hugagent_agent_loop,
+        "hugagent_bdu": hugagent_agent_loop,
     }
     for key, fn in _ROUTES.items():
         if key == data_source:

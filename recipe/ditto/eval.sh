@@ -1,9 +1,10 @@
 #!/bin/bash
-# Eval-only run across the full SOUL eval suite (27 tasks).
+# Eval-only run across 27 SOUL tasks, plus two optional HugAgent tasks.
 #
 # Usage:
 #   bash recipe/ditto/eval.sh local   # eval a local checkpoint via vLLM
 #   bash recipe/ditto/eval.sh api     # eval an API model (Claude / GPT / ...)
+#   INCLUDE_HUGAGENT=1 bash recipe/ditto/eval.sh local  # requires separate data download
 
 MODE="${1:-${MODE:-local}}"
 
@@ -41,6 +42,23 @@ $eval_dir/alignx_arbitrary_val.parquet,\
 $eval_dir/alignx_history16_val.parquet,\
 $eval_dir/socsci210_val.parquet,\
 $eval_dir/humanllm_val.parquet]"
+
+# HugAgent is gated and distributed separately from sim-eval-data.
+case "${INCLUDE_HUGAGENT:-0}" in
+  1)
+    hugagent_dir="${HUGAGENT_DATA_DIR:-$data_dir/hugagent/odyssim}"
+    for task in bsi bdu; do
+      if [[ ! -f "$hugagent_dir/hugagent_${task}_val.parquet" ]]; then
+        echo "Missing HugAgent data: $hugagent_dir/hugagent_${task}_val.parquet" >&2
+        echo "Download both files from social-atoms/hugagent as described in recipe/ditto/README.md, or set HUGAGENT_DATA_DIR." >&2
+        exit 1
+      fi
+    done
+    val_files="${val_files%]},$hugagent_dir/hugagent_bsi_val.parquet,$hugagent_dir/hugagent_bdu_val.parquet]"
+    ;;
+  0) ;;
+  *) echo "INCLUDE_HUGAGENT must be 0 or 1" >&2; exit 1 ;;
+esac
 
 # ── Mode: pick which model to evaluate ────────────────────────────────────────
 case "$MODE" in

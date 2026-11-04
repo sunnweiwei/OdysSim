@@ -345,7 +345,13 @@ class RLHFDataset(Dataset):
         # add index for each prompt
         if "extra_info" not in row_dict or row_dict["extra_info"] is None:
             row_dict["extra_info"] = dict()
-        index = row_dict.get("extra_info", {}).get("index", 0)
+        index = row_dict["extra_info"].get("index")
+        if index is None:
+            # Keep the nested index used by agents/logging in sync with the
+            # top-level index used by rollout tracing, including null fields
+            # introduced when concatenating datasets with different schemas.
+            index = item
+            row_dict["extra_info"]["index"] = index
         tools_kwargs = row_dict.get("extra_info", {}).get("tools_kwargs", {})
         interaction_kwargs = row_dict.get("extra_info", {}).get("interaction_kwargs", {})
         need_tools_kwargs = row_dict.get("extra_info", {}).get("need_tools_kwargs", self.need_tools_kwargs)
