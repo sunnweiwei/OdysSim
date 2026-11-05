@@ -62,13 +62,13 @@ class SFTTaskRunner(TaskRunner):
 
         resource_pool_manager = self.init_resource_pool_mgr(config)
 
-        local_path = copy_to_local(
-            config.actor_rollout_ref.model.path,
+        tokenizer_path = copy_to_local(
+            config.actor_rollout_ref.model.get("tokenizer_path") or config.actor_rollout_ref.model.path,
             use_shm=config.actor_rollout_ref.model.get("use_shm", False),
         )
         trust_remote_code = config.data.get("trust_remote_code", False)
-        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
+        tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=trust_remote_code)
+        processor = hf_processor(tokenizer_path, trust_remote_code=trust_remote_code, use_fast=True)
 
         # val_reward_fn is used for RL generative eval (_validate).
         # Only loaded when rl_test_files is set; otherwise None disables RL eval.
